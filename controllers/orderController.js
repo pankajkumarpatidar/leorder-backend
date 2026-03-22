@@ -1,218 +1,173 @@
 const pool = require('../config/db');
 
 
-// 🔥 CREATE ORDER (FINAL UPDATED)
+// 🔥 CREATE ORDER
 exports.create = async (req, res) => {
   try {
-    const { retailer_id, brand_id, salesman_id, items } = req.body;
+    const { retailer_id, items, total } = req.body;
 
-    // 🔹 Basic validation
-    if (!retailer_id || !brand_id || !salesman_id) {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
+    // 🧠 role based creator
+    let created_by = req.user.id;
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ message: "Items required" });
-    }
-
-    // 🔥 ROLE BASED CHECK
-
-    // Retailer → only own order
-    if (req.user.role === 'retailer') {
-      if (req.user.ref_id !== retailer_id) {
-        return res.status(403).json({
-          message: "Retailer can create only their own order"
-        });
-      }
-    }
-
-    // Salesman → (basic check, future enhance)
-    if (req.user.role === 'salesman') {
-      if (!salesman_id) {
-        return res.status(400).json({
-          message: "Salesman ID required"
-        });
-      }
-    }
-
-    // 🔹 Create order
-    const orderRes = await pool.query(
+    // 🔥 INSERT ORDER
+    const orderResult = await pool.query(
       `INSERT INTO orders 
-      (retailer_id, brand_id, salesman_id, total_amount, status)
+      (retailer_id, total, status, distributor_id, created_by) 
       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [retailer_id, brand_id, salesman_id, 0, 'pending']
+      [
+        retailer_id,
+        total,
+        "pending",
+        req.user.distributor_id, // 🔥 MUST
+        created_by
+      ]
     );
 
-    const orderId = orderRes.rows[0].id;
-    let totalAmount = 0;
+    const order = orderResult.rows[0];
 
-    // 🔹 Loop items
+    // 🔥 INSERT ITEMS
     for (let item of items) {
-
-      const qty = Number(item.qty);
-      const productId = Number(item.product_id);
-
-      if (!qty || !productId) {
-        return res.status(400).json({ message: "Invalid qty or product_id" });
-      }
-
-      if (!['pcs', 'box'].includes(item.unit)) {
-        return res.status(400).json({ message: "Invalid unit" });
-      }
-
-      // 🔹 Fetch product
-      const productRes = await pool.query(
-        `SELECT * FROM products WHERE id=$1`,
-        [productId]
-      );
-
-      if (productRes.rows.length === 0) {
-        return res.status(400).json({ message: "Product not found" });
-      }
-
-      const product = productRes.rows[0];
-
-      // 🔹 FINAL QTY
-      let finalQty = qty;
-      if (item.unit === 'box') {
-        finalQty = qty * Number(product.pcs_per_box);
-      }
-
-      // 🔹 BASE PRICE
-      let basePrice =
-        item.unit === 'box'
-          ? Number(product.dp_per_pcs) * Number(product.pcs_per_box)
-          : Number(product.dp_per_pcs);
-
-      // 🔹 DISCOUNTS
-      const trade = Number(item.trade_discount || 0);
-      const special = Number(item.special_discount || 0);
-      const cash = Number(item.cash_discount || 0);
-
-      let netRate = basePrice;
-
-      netRate -= (netRate * trade / 100);
-      netRate -= (netRate * special / 100);
-      netRate -= (netRate * cash / 100);
-
-      // 🔹 TOTAL
-      const total = qty * netRate;
-      totalAmount += total;
-
-      // 🔹 INSERT ITEM
       await pool.query(
         `INSERT INTO order_items 
-        (order_id, product_name, qty, unit, final_qty, price, total,
-         trade_discount, special_discount, cash_discount, net_rate)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        (order_id, product_id, qty, price, distributor_id) 
+        VALUES ($1,$2,$3,$4,$5)`,
         [
-          orderId,
-          product.name,
-          qty,
-          item.unit,
-          finalQty,
-          basePrice,
-          total,
-          trade,
-          special,
-          cash,
-          netRate
+          order.id,
+          item.product_id,
+          item.qty,
+          item.price,
+          req.user.distributor_id
         ]
       );
     }
 
-    // 🔹 Update total
-    await pool.query(
-      `UPDATE orders SET total_amount=$1 WHERE id=$2`,
-      [totalAmount, orderId]
-    );
-
     res.json({
-      message: "Order created successfully",
-      order_id: orderId,
-      total_amount: totalAmount
-    });
-
-  } catch (err) {
-    console.error("ORDER ERROR:", err);
-    res.status(500).json({
-      message: "Internal server error",
-      error: err.message
-    });
-  }
-};
-
-
-
-// 🔹 LIST ORDERS (Admin + Staff)
-exports.list = async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT * FROM orders ORDER BY id DESC`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).send("Error");
-  }
-};
-
-
-
-// 🔹 GET SINGLE ORDER
-exports.getOne = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // 🔥 JOIN ADD (IMPORTANT)
-    const orderRes = await pool.query(
-      `SELECT o.*, r.firm_name AS retailer_name
-       FROM orders o
-       LEFT JOIN retailers r ON o.retailer_id = r.id
-       WHERE o.id=$1`,
-      [id]
-    );
-
-    const order = orderRes.rows[0];
-
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    const items = await pool.query(
-      `SELECT * FROM order_items WHERE order_id=$1`,
-      [id]
-    );
-
-    res.json({
-      order,
-      items: items.rows
+      success: true,
+      message: "Order created",
+      data: order
     });
 
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error");
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔹 UPDATE STATUS (Admin + Staff only)
+// 🔥 LIST ALL (ADMIN + STAFF)
+exports.list = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM orders 
+       WHERE distributor_id=$1 
+       ORDER BY id DESC`,
+      [req.user.distributor_id]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+
+
+// 🔥 MY ORDERS (SALESMAN)
+exports.myOrders = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM orders 
+       WHERE created_by=$1 AND distributor_id=$2 
+       ORDER BY id DESC`,
+      [req.user.id, req.user.distributor_id]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+
+
+// 🔥 GET SINGLE ORDER
+exports.getOne = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await pool.query(
+      `SELECT * FROM orders 
+       WHERE id=$1 AND distributor_id=$2`,
+      [id, req.user.distributor_id]
+    );
+
+    if (order.rows.length === 0) {
+      return res.status(404).json({
+        message: "Order not found"
+      });
+    }
+
+    const items = await pool.query(
+      `SELECT * FROM order_items 
+       WHERE order_id=$1 AND distributor_id=$2`,
+      [id, req.user.distributor_id]
+    );
+
+    res.json({
+      success: true,
+      order: order.rows[0],
+      items: items.rows
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+
+
+// 🔥 UPDATE STATUS (ADMIN + STAFF)
 exports.updateStatus = async (req, res) => {
   try {
     const { order_id, status } = req.body;
 
     if (!['pending', 'approved', 'rejected'].includes(status)) {
-      return res.status(400).json({ message: "Invalid status" });
+      return res.status(400).json({
+        message: "Invalid status"
+      });
     }
 
-    await pool.query(
-      `UPDATE orders SET status=$1 WHERE id=$2`,
-      [status, order_id]
+    const result = await pool.query(
+      `UPDATE orders 
+       SET status=$1 
+       WHERE id=$2 AND distributor_id=$3 
+       RETURNING *`,
+      [status, order_id, req.user.distributor_id]
     );
 
-    res.json({ message: "Status updated" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: "Order not found or access denied"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Status updated",
+      data: result.rows[0]
+    });
 
   } catch (err) {
-    res.status(500).send("Error");
+    console.error(err);
+    res.status(500).json({ success: false });
   }
 };

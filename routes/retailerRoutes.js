@@ -4,8 +4,7 @@ const router = express.Router();
 const controller = require('../controllers/retailerController');
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
-
-// 🔥 CREATE
+// 🔥 CREATE RETAILER
 router.post(
   '/create',
   verifyToken,
@@ -13,8 +12,7 @@ router.post(
   controller.create
 );
 
-
-// 🔥 LIST
+// 🔥 LIST RETAILERS
 router.get(
   '/list',
   verifyToken,
@@ -22,16 +20,14 @@ router.get(
   controller.list
 );
 
-
-// 🔥 GET ONE
+// 🔥 GET SINGLE RETAILER
 router.get(
   '/:id',
   verifyToken,
   controller.getOne
 );
 
-
-// 🔥 UPDATE
+// 🔥 UPDATE RETAILER
 router.put(
   '/:id',
   verifyToken,
@@ -39,14 +35,12 @@ router.put(
   controller.update
 );
 
-
-// 🔥 DELETE
+// 🔥 DELETE RETAILER
 router.delete(
   '/:id',
   verifyToken,
   checkRole('admin'),
   controller.delete
 );
-
 
 module.exports = router;

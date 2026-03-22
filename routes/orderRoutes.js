@@ -16,7 +16,7 @@ router.post(
 
 
 // 🔥 GET ALL ORDERS
-// ✔ Only Admin + Staff
+// ✔ Admin + Staff only
 router.get(
   '/list',
   verifyToken,
@@ -26,7 +26,7 @@ router.get(
 
 
 // 🔥 GET SINGLE ORDER
-// ✔ All (लेकिन retailer restriction controller में)
+// ✔ All roles (लेकिन restriction controller में)
 router.get(
   '/:id',
   verifyToken,
@@ -35,7 +35,7 @@ router.get(
 
 
 // 🔥 UPDATE STATUS
-// ✔ Only Admin + Staff
+// ✔ Admin + Staff only
 router.post(
   '/status',
   verifyToken,
@@ -43,5 +43,14 @@ router.post(
   controller.updateStatus
 );
 
+
+// 🔥 OPTIONAL (future use)
+// ✔ Salesman → apne orders
+router.get(
+  '/my',
+  verifyToken,
+  checkRole('salesman'),
+  controller.myOrders
+);
 
 module.exports = router;
