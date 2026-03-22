@@ -1,180 +1,159 @@
 const pool = require('../config/db');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 
-// ================= REGISTER (Distributor) =================
+// 🔥 REGISTER (Distributor Signup)
 exports.register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // check existing
-    const checkUser = await pool.query(
+    // basic validation
+    if (!name || !email || !password) {
+      return res.json({ success: false, message: "All fields required" });
+    }
+
+    // check existing user
+    const existing = await pool.query(
       "SELECT * FROM users WHERE email = $1",
       [email]
     );
 
-    if (checkUser.rows.length > 0) {
-      return res.json({
-        success: false,
-        message: "User already exists"
-      });
+    if (existing.rows.length > 0) {
+      return res.json({ success: false, message: "Email already exists" });
     }
 
-    // create distributor
-    const newUser = await pool.query(
-      `INSERT INTO users 
-      (name, email, password, role, distributor_id) 
-      VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [name, email, password, "admin", null]
+    // hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 🔥 create distributor (admin)
+    const result = await pool.query(
+      `INSERT INTO users (name, email, password, role, distributor_id)
+       VALUES ($1, $2, $3, $4, NULL)
+       RETURNING *`,
+      [name, email, hashedPassword, 'admin']
     );
 
-    const user = newUser.rows[0];
+    const user = result.rows[0];
 
-    // 🔥 distributor_id = own id
+    // 🔥 distributor_id = self id
     await pool.query(
       "UPDATE users SET distributor_id = $1 WHERE id = $1",
       [user.id]
     );
 
-    res.json({
+    return res.json({
       success: true,
-      message: "Distributor registered successfully"
+      message: "Account created successfully"
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
+    console.log("REGISTER ERROR:", err);
+    return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server Error"
     });
   }
 };
 
 
 
-// ================= LOGIN =================
+// 🔥 LOGIN
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await pool.query(
+    const result = await pool.query(
       "SELECT * FROM users WHERE email = $1",
       [email]
     );
 
-    if (user.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.json({
         success: false,
         message: "User not found"
       });
     }
 
-    const dbUser = user.rows[0];
+    const user = result.rows[0];
 
-    // password check (simple)
-    if (dbUser.password !== password) {
+    // check password
+    const match = await bcrypt.compare(password, user.password);
+
+    if (!match) {
       return res.json({
         success: false,
         message: "Invalid password"
       });
     }
 
-    // 🔥 distributor_id logic
-    let distributor_id;
-
-    if (dbUser.role === "admin") {
-      distributor_id = dbUser.id;
-    } else {
-      distributor_id = dbUser.distributor_id;
-    }
-
-    // 🔐 token
+    // create token
     const token = jwt.sign(
       {
-        id: dbUser.id,
-        role: dbUser.role,
-        distributor_id: distributor_id
+        id: user.id,
+        role: user.role,
+        distributor_id: user.distributor_id
       },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: '7d' }
     );
 
-    res.json({
+    return res.json({
       success: true,
       token,
-      user: {
-        id: dbUser.id,
-        name: dbUser.name,
-        email: dbUser.email,
-        role: dbUser.role,
-        distributor_id: distributor_id
-      }
+      user
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
+    console.log("LOGIN ERROR:", err);
+    return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server Error"
     });
   }
 };
 
 
 
-// ================= CREATE USER =================
+// 🔥 CREATE USER (Distributor → Staff / Salesman)
 exports.createUser = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
-    // ❌ only staff / salesman allowed
-    if (!['staff', 'salesman'].includes(role)) {
-      return res.json({
-        success: false,
-        message: "Invalid role"
-      });
+    const distributor_id = req.user.distributor_id;
+
+    if (!name || !email || !password || !role) {
+      return res.json({ success: false, message: "All fields required" });
     }
 
     // check existing
-    const check = await pool.query(
-      "SELECT * FROM users WHERE email=$1",
+    const exist = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
       [email]
     );
 
-    if (check.rows.length > 0) {
-      return res.json({
-        success: false,
-        message: "User already exists"
-      });
+    if (exist.rows.length > 0) {
+      return res.json({ success: false, message: "Email already exists" });
     }
 
-    // 🔥 create under distributor
-    const newUser = await pool.query(
-      `INSERT INTO users 
-      (name, email, password, role, distributor_id, ref_id)
-      VALUES ($1,$2,$3,$4,$5,$6)
-      RETURNING *`,
-      [
-        name,
-        email,
-        password,
-        role,
-        req.user.distributor_id, // 🔥 same distributor
-        req.user.id // 🔥 parent creator
-      ]
+    const hashed = await bcrypt.hash(password, 10);
+
+    await pool.query(
+      `INSERT INTO users (name, email, password, role, distributor_id)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [name, email, hashed, role, distributor_id]
     );
 
     res.json({
       success: true,
-      message: `${role} created successfully`,
-      data: newUser.rows[0]
+      message: "User created"
     });
 
   } catch (err) {
-    console.error(err);
+    console.log("CREATE USER ERROR:", err);
     res.status(500).json({
       success: false,
-      message: "Error creating user"
+      message: "Server Error"
     });
   }
 };
