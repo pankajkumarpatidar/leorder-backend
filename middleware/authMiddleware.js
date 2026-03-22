@@ -1,7 +1,7 @@
-const jwt = require('jsonwebtoken');
+const jwt = require("jsonwebtoken");
 
 
-// 🔐 VERIFY TOKEN (FINAL)
+// ================= VERIFY TOKEN =================
 exports.verifyToken = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -10,7 +10,7 @@ exports.verifyToken = (req, res, next) => {
     if (!authHeader) {
       return res.status(401).json({
         success: false,
-        message: "Token required",
+        message: "Authorization header missing",
       });
     }
 
@@ -18,13 +18,13 @@ exports.verifyToken = (req, res, next) => {
     if (!authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
-        message: "Invalid token format",
+        message: "Invalid token format (Bearer required)",
       });
     }
 
     const token = authHeader.split(" ")[1];
 
-    // ❌ Empty token
+    // ❌ No token
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -32,33 +32,54 @@ exports.verifyToken = (req, res, next) => {
       });
     }
 
-    // 🔓 VERIFY
+    // 🔓 VERIFY TOKEN
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // 🔥 IMPORTANT: ensure role exists
-    if (!decoded.role) {
+    // ❌ Required fields check
+    if (!decoded.id || !decoded.role) {
       return res.status(403).json({
         success: false,
-        message: "Role not found in token",
+        message: "Invalid token payload",
       });
     }
 
-    req.user = decoded;
+    // 🔥 attach user
+    req.user = {
+      id: decoded.id,
+      role: decoded.role,
+      distributor_id: decoded.distributor_id || null,
+    };
 
     next();
 
   } catch (err) {
-    console.error("AUTH ERROR:", err.message);
+    console.error("AUTH ERROR ❌", err.message);
 
-    return res.status(401).json({
+    // 🔥 Specific error handling
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        success: false,
+        message: "Token expired, please login again",
+      });
+    }
+
+    if (err.name === "JsonWebTokenError") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token",
+      });
+    }
+
+    return res.status(500).json({
       success: false,
-      message: "Invalid or expired token",
+      message: "Authentication failed",
     });
   }
 };
 
 
-// 🔐 ROLE CHECK (FINAL SAFE VERSION)
+
+// ================= ROLE CHECK =================
 exports.checkRole = (...allowedRoles) => {
   return (req, res, next) => {
     try {
@@ -70,26 +91,28 @@ exports.checkRole = (...allowedRoles) => {
         });
       }
 
-      // ❌ Role missing
-      if (!req.user.role) {
+      const userRole = req.user.role;
+
+      // ❌ No role
+      if (!userRole) {
         return res.status(403).json({
           success: false,
-          message: "User role not found",
+          message: "User role missing",
         });
       }
 
       // ❌ Not allowed
-      if (!allowedRoles.includes(req.user.role)) {
+      if (!allowedRoles.includes(userRole)) {
         return res.status(403).json({
           success: false,
-          message: `Access denied for role: ${req.user.role}`,
+          message: `Access denied (${userRole})`,
         });
       }
 
       next();
 
     } catch (err) {
-      console.error("ROLE ERROR:", err.message);
+      console.error("ROLE ERROR ❌", err.message);
 
       return res.status(500).json({
         success: false,
@@ -97,4 +120,17 @@ exports.checkRole = (...allowedRoles) => {
       });
     }
   };
+};
+
+
+
+// ================= OPTIONAL ADMIN CHECK =================
+exports.isAdmin = (req, res, next) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Admin access only",
+    });
+  }
+  next();
 };
