@@ -1,61 +1,95 @@
 const pool = require('../config/db');
 
 
-// 🔥 CREATE ORDER
+// ================= CREATE ORDER =================
 exports.create = async (req, res) => {
+  const client = await pool.connect();
+
   try {
-    const { retailer_id, items, total } = req.body;
+    const { retailer_id, items } = req.body;
 
-    // 🧠 role based creator
-    let created_by = req.user.id;
+    if (!retailer_id || !items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order data"
+      });
+    }
 
-    // 🔥 INSERT ORDER
-    const orderResult = await pool.query(
+    const created_by = req.user.id;
+    const distributor_id = req.user.distributor_id;
+
+    await client.query("BEGIN");
+
+    // 🔥 Create order (total = 0 initially)
+    const orderResult = await client.query(
       `INSERT INTO orders 
-      (retailer_id, total, status, distributor_id, created_by) 
+      (retailer_id, total_amount, status, distributor_id, created_by) 
       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [
         retailer_id,
-        total,
+        0,
         "pending",
-        req.user.distributor_id, // 🔥 MUST
+        distributor_id,
         created_by
       ]
     );
 
     const order = orderResult.rows[0];
 
-    // 🔥 INSERT ITEMS
+    let total = 0;
+
+    // 🔥 Insert items
     for (let item of items) {
-      await pool.query(
+      const itemTotal = item.qty * item.price;
+      total += itemTotal;
+
+      await client.query(
         `INSERT INTO order_items 
-        (order_id, product_id, qty, price, distributor_id) 
-        VALUES ($1,$2,$3,$4,$5)`,
+        (order_id, product_name, qty, price, total, distributor_id) 
+        VALUES ($1,$2,$3,$4,$5,$6)`,
         [
           order.id,
-          item.product_id,
+          item.product_name || "Product",
           item.qty,
           item.price,
-          req.user.distributor_id
+          itemTotal,
+          distributor_id
         ]
       );
     }
 
+    // 🔥 Update total
+    await client.query(
+      `UPDATE orders SET total_amount=$1 WHERE id=$2`,
+      [total, order.id]
+    );
+
+    await client.query("COMMIT");
+
     res.json({
       success: true,
-      message: "Order created",
-      data: order
+      message: "Order created successfully",
+      order_id: order.id,
+      total
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false });
+    await client.query("ROLLBACK");
+    console.error("CREATE ORDER ERROR ❌", err);
+
+    res.status(500).json({
+      success: false,
+      message: "Order creation failed"
+    });
+
+  } finally {
+    client.release();
   }
 };
 
 
 
-// 🔥 LIST ALL (ADMIN + STAFF)
+// ================= LIST ALL =================
 exports.list = async (req, res) => {
   try {
     const result = await pool.query(
@@ -67,17 +101,19 @@ exports.list = async (req, res) => {
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
+    console.error("LIST ERROR ❌", err);
     res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 MY ORDERS (SALESMAN)
+// ================= MY ORDERS =================
 exports.myOrders = async (req, res) => {
   try {
     const result = await pool.query(
@@ -89,17 +125,19 @@ exports.myOrders = async (req, res) => {
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
+    console.error("MY ORDERS ERROR ❌", err);
     res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 GET SINGLE ORDER
+// ================= GET ONE =================
 exports.getOne = async (req, res) => {
   try {
     const { id } = req.params;
@@ -112,6 +150,7 @@ exports.getOne = async (req, res) => {
 
     if (order.rows.length === 0) {
       return res.status(404).json({
+        success: false,
         message: "Order not found"
       });
     }
@@ -129,19 +168,21 @@ exports.getOne = async (req, res) => {
     });
 
   } catch (err) {
+    console.error("GET ONE ERROR ❌", err);
     res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 UPDATE STATUS (ADMIN + STAFF)
+// ================= UPDATE STATUS =================
 exports.updateStatus = async (req, res) => {
   try {
     const { order_id, status } = req.body;
 
     if (!['pending', 'approved', 'rejected'].includes(status)) {
       return res.status(400).json({
+        success: false,
         message: "Invalid status"
       });
     }
@@ -156,6 +197,7 @@ exports.updateStatus = async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({
+        success: false,
         message: "Order not found or access denied"
       });
     }
@@ -167,7 +209,7 @@ exports.updateStatus = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("STATUS ERROR ❌", err);
     res.status(500).json({ success: false });
   }
 };
