@@ -5,7 +5,7 @@ const controller = require('../controllers/productController');
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
 
-// 🔥 CREATE PRODUCT (ADMIN ONLY)
+// 🔥 CREATE
 router.post(
   '/create',
   verifyToken,
@@ -14,8 +14,8 @@ router.post(
 );
 
 
-// 🔥 UPDATE PRODUCT (ADMIN + STAFF)
-router.post(
+// 🔥 UPDATE
+router.put(
   '/update',
   verifyToken,
   checkRole('admin', 'staff'),
@@ -23,7 +23,7 @@ router.post(
 );
 
 
-// 🔹 LIST PRODUCTS (ALL LOGGED USERS)
+// 🔥 LIST
 router.get(
   '/list',
   verifyToken,
@@ -31,7 +31,7 @@ router.get(
 );
 
 
-// 🔹 PRICE LIST (JSON)
+// 🔥 PRICE LIST
 router.get(
   '/price-list/:brand_id',
   verifyToken,
@@ -39,28 +39,11 @@ router.get(
 );
 
 
-// 🔹 PRICE LIST PDF
-router.get(
-  '/price-list-pdf/:brand_id',
-  verifyToken,
-  controller.priceListPDF
-);
-
-
-// 🔥 PRICE LIST EXCEL
+// 🔥 EXCEL
 router.get(
   '/price-list-excel/:brand_id',
   verifyToken,
   controller.priceListExcel
 );
-
-
-// 🔥 WHATSAPP SHARE LINK
-router.get(
-  '/price-list-share/:brand_id',
-  verifyToken,
-  controller.sharePriceList
-);
-
 
 module.exports = router;

@@ -5,16 +5,16 @@ const controller = require('../controllers/worksheetController');
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
 
-// 🔥 CREATE (SALESMAN)
+// 🔥 CREATE
 router.post(
   '/create',
   verifyToken,
-  checkRole('salesman'),
+  checkRole('salesman', 'staff'),
   controller.create
 );
 
 
-// 🔥 LIST (ADMIN + STAFF)
+// 🔥 LIST
 router.get(
   '/list',
   verifyToken,
@@ -23,7 +23,7 @@ router.get(
 );
 
 
-// 🔥 SALESMAN OWN DATA
+// 🔥 MY DATA
 router.get(
   '/my',
   verifyToken,
@@ -32,13 +32,21 @@ router.get(
 );
 
 
+// 🔥 UPDATE STATUS
+router.post(
+  '/status',
+  verifyToken,
+  checkRole('admin', 'staff'),
+  controller.updateStatus
+);
+
+
 // 🔥 CONVERT TO LEAD
 router.post(
   '/convert',
   verifyToken,
-  checkRole('admin', 'staff'),
+  checkRole('salesman', 'staff'),
   controller.convertToLead
 );
-
 
 module.exports = router;

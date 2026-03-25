@@ -1,16 +1,53 @@
 const pool = require('../config/db');
 
 
-// 🔥 CREATE RETAILER
+// ================= CREATE RETAILER =================
 exports.create = async (req, res) => {
   try {
-    const { name, mobile, address } = req.body;
+    const {
+      business_name,
+      email,
+      mobile,
+      gst_no,
+      address,
+      pincode
+    } = req.body;
+
+    if (!business_name || !mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "Business name & mobile required"
+      });
+    }
+
+    // 🔹 duplicate check (same distributor)
+    const existing = await pool.query(
+      `SELECT * FROM retailers 
+       WHERE mobile=$1 AND distributor_id=$2`,
+      [mobile, req.user.distributor_id]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.json({
+        success: false,
+        message: "Retailer already exists"
+      });
+    }
 
     const result = await pool.query(
       `INSERT INTO retailers 
-      (name, mobile, address, distributor_id)
-      VALUES ($1,$2,$3,$4) RETURNING *`,
-      [name, mobile, address, req.user.distributor_id]
+      (business_name, email, mobile, gst_no, address, pincode, distributor_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      RETURNING *`,
+      [
+        business_name,
+        email || "",
+        mobile,
+        gst_no || "",
+        address || "",
+        pincode || "",
+        req.user.distributor_id
+      ]
     );
 
     res.json({
@@ -20,37 +57,41 @@ exports.create = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Error creating retailer" });
+    console.error("CREATE RETAILER ERROR ❌", err);
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
 
 
-// 🔥 LIST RETAILERS (FILTERED)
+// ================= LIST RETAILERS =================
 exports.list = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT * FROM retailers 
-       WHERE distributor_id = $1 
+       WHERE distributor_id=$1
        ORDER BY id DESC`,
       [req.user.distributor_id]
     );
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Error fetching retailers" });
+    console.error("LIST RETAILER ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 GET SINGLE RETAILER
+// ================= GET ONE =================
 exports.getOne = async (req, res) => {
   try {
     const { id } = req.params;
@@ -74,25 +115,48 @@ exports.getOne = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Error fetching retailer" });
+    console.error("GET RETAILER ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 UPDATE RETAILER
+// ================= UPDATE =================
 exports.update = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, mobile, address } = req.body;
+
+    const {
+      business_name,
+      email,
+      mobile,
+      gst_no,
+      address,
+      pincode
+    } = req.body;
 
     const result = await pool.query(
       `UPDATE retailers 
-       SET name=$1, mobile=$2, address=$3 
-       WHERE id=$4 AND distributor_id=$5 
+       SET 
+         business_name=$1,
+         email=$2,
+         mobile=$3,
+         gst_no=$4,
+         address=$5,
+         pincode=$6
+       WHERE id=$7 AND distributor_id=$8
        RETURNING *`,
-      [name, mobile, address, id, req.user.distributor_id]
+      [
+        business_name,
+        email,
+        mobile,
+        gst_no,
+        address,
+        pincode,
+        id,
+        req.user.distributor_id
+      ]
     );
 
     if (result.rows.length === 0) {
@@ -109,21 +173,21 @@ exports.update = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Error updating retailer" });
+    console.error("UPDATE RETAILER ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 DELETE RETAILER
+// ================= DELETE =================
 exports.delete = async (req, res) => {
   try {
     const { id } = req.params;
 
     const result = await pool.query(
       `DELETE FROM retailers 
-       WHERE id=$1 AND distributor_id=$2 
+       WHERE id=$1 AND distributor_id=$2
        RETURNING *`,
       [id, req.user.distributor_id]
     );
@@ -141,7 +205,7 @@ exports.delete = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Error deleting retailer" });
+    console.error("DELETE RETAILER ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };

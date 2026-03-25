@@ -5,7 +5,7 @@ const controller = require('../controllers/leadController');
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
 
-// 🔥 CREATE (SALESMAN ONLY)
+// 🔥 CREATE (SALESMAN)
 router.post(
   '/create',
   verifyToken,
@@ -14,7 +14,7 @@ router.post(
 );
 
 
-// 🔥 ADMIN + STAFF LIST
+// 🔥 ALL LEADS
 router.get(
   '/list',
   verifyToken,
@@ -23,7 +23,7 @@ router.get(
 );
 
 
-// 🔥 SALESMAN OWN LEADS
+// 🔥 MY LEADS
 router.get(
   '/my',
   verifyToken,
@@ -32,9 +32,9 @@ router.get(
 );
 
 
-// 🔥 APPROVE / REJECT
+// 🔥 UPDATE STATUS
 router.post(
-  '/update-status',
+  '/status',
   verifyToken,
   checkRole('admin', 'staff'),
   controller.updateStatus
@@ -48,6 +48,5 @@ router.post(
   checkRole('admin', 'staff'),
   controller.convertToRetailer
 );
-
 
 module.exports = router;

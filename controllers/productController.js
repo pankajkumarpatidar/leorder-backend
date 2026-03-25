@@ -3,184 +3,198 @@ const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 
 
-// 🔥 CREATE PRODUCT (ADMIN ONLY)
+// ================= CREATE PRODUCT =================
 exports.create = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: "Only admin can create product" });
+      return res.status(403).json({
+        success: false,
+        message: "Only admin allowed"
+      });
     }
 
-    const { name, brand_id, pcs_per_box, dp_per_pcs, mrp_per_pcs } = req.body;
+    const {
+      name,
+      brand_id,
+      category_id,
+      unit,
+      pcs_per_box,
+      dp_per_pcs,
+      mrp_per_pcs
+    } = req.body;
+
+    if (!name || !brand_id) {
+      return res.json({
+        success: false,
+        message: "Name & brand required"
+      });
+    }
 
     const result = await pool.query(
       `INSERT INTO products 
-      (name, brand_id, pcs_per_box, dp_per_pcs, mrp_per_pcs)
-      VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      (name, brand_id, category_id, unit, pcs_per_box, dp_per_pcs, mrp_per_pcs, distributor_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         name,
-        Number(brand_id),
+        brand_id,
+        category_id || null,
+        unit || "pcs",
         Number(pcs_per_box || 0),
         Number(dp_per_pcs || 0),
-        Number(mrp_per_pcs || 0)
+        Number(mrp_per_pcs || 0),
+        req.user.distributor_id
       ]
     );
 
-    res.json(result.rows[0]);
+    res.json({
+      success: true,
+      message: "Product created",
+      data: result.rows[0]
+    });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error creating product" });
+    console.error("CREATE PRODUCT ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 UPDATE PRODUCT (ADMIN + STAFF)
+// ================= UPDATE PRODUCT =================
 exports.update = async (req, res) => {
   try {
-    if (!['admin', 'staff'].includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
+    const { id } = req.body;
 
-    const { id, dp_per_pcs, mrp_per_pcs } = req.body;
+    const {
+      dp_per_pcs,
+      mrp_per_pcs,
+      unit
+    } = req.body;
 
-    await pool.query(
+    const result = await pool.query(
       `UPDATE products 
-       SET dp_per_pcs=$1, mrp_per_pcs=$2 
-       WHERE id=$3`,
+       SET dp_per_pcs=$1, mrp_per_pcs=$2, unit=$3
+       WHERE id=$4 AND distributor_id=$5
+       RETURNING *`,
       [
         Number(dp_per_pcs),
         Number(mrp_per_pcs),
-        Number(id)
+        unit,
+        id,
+        req.user.distributor_id
       ]
     );
 
-    res.json({ message: "Product updated" });
+    res.json({
+      success: true,
+      message: "Product updated",
+      data: result.rows[0]
+    });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating product" });
+    console.error("UPDATE PRODUCT ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔹 LIST PRODUCTS (ALL LOGGED USERS)
+// ================= LIST PRODUCTS =================
 exports.list = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM products ORDER BY id DESC`
+      `SELECT 
+        p.*,
+        b.name AS brand_name,
+        c.name AS category_name
+      FROM products p
+      LEFT JOIN brands b ON p.brand_id = b.id
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE p.distributor_id=$1
+      ORDER BY p.id DESC`,
+      [req.user.distributor_id]
     );
 
-    res.json(result.rows);
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
 
   } catch (err) {
-    res.status(500).json({ message: "Error fetching products" });
+    console.error("LIST PRODUCT ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 PRICE LIST (JSON)
+// ================= PRICE LIST =================
 exports.priceList = async (req, res) => {
   try {
-    const brand_id = Number(req.params.brand_id);
+    const { brand_id } = req.params;
 
     const result = await pool.query(
       `SELECT 
-        id,
-        name,
-        pcs_per_box,
-        dp_per_pcs,
-        (dp_per_pcs * pcs_per_box) AS dp_per_box,
-        mrp_per_pcs,
-        (mrp_per_pcs * pcs_per_box) AS mrp_per_box
-      FROM products
-      WHERE brand_id = $1
-      ORDER BY name ASC`,
-      [brand_id]
+        p.id,
+        p.name,
+        p.unit,
+        c.name AS category,
+        p.pcs_per_box,
+        p.dp_per_pcs,
+        (p.dp_per_pcs * p.pcs_per_box) AS dp_per_box,
+        p.mrp_per_pcs,
+        (p.mrp_per_pcs * p.pcs_per_box) AS mrp_per_box
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE p.brand_id=$1 AND p.distributor_id=$2
+      ORDER BY p.name ASC`,
+      [brand_id, req.user.distributor_id]
     );
 
-    res.json(result.rows);
-
-  } catch (err) {
-    res.status(500).json({ message: "Error fetching price list" });
-  }
-};
-
-
-
-// 🔥 PDF PRICE LIST
-exports.priceListPDF = async (req, res) => {
-  try {
-    const brand_id = Number(req.params.brand_id);
-
-    const result = await pool.query(
-      `SELECT name, pcs_per_box, dp_per_pcs 
-       FROM products 
-       WHERE brand_id=$1 
-       ORDER BY name ASC`,
-      [brand_id]
-    );
-
-    const doc = new PDFDocument();
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename=price-list.pdf');
-
-    doc.pipe(res);
-
-    doc.fontSize(20).text('PRICE LIST', { align: 'center' });
-    doc.moveDown();
-
-    doc.fontSize(12).text('Product | PCS/Box | PCS Price | Box Price');
-    doc.moveDown();
-
-    result.rows.forEach(p => {
-      const box = p.dp_per_pcs * p.pcs_per_box;
-
-      doc.text(`${p.name} | ${p.pcs_per_box} | ${p.dp_per_pcs} | ${box}`);
+    res.json({
+      success: true,
+      data: result.rows
     });
 
-    doc.end();
-
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "PDF Error" });
+    console.error("PRICE LIST ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };
 
 
 
-// 🔥 EXCEL PRICE LIST
+// ================= EXCEL =================
 exports.priceListExcel = async (req, res) => {
   try {
-    const brand_id = Number(req.params.brand_id);
+    const { brand_id } = req.params;
 
     const result = await pool.query(
-      `SELECT name, pcs_per_box, dp_per_pcs 
+      `SELECT name, unit, pcs_per_box, dp_per_pcs 
        FROM products 
-       WHERE brand_id=$1 
-       ORDER BY name ASC`,
-      [brand_id]
+       WHERE brand_id=$1 AND distributor_id=$2`,
+      [brand_id, req.user.distributor_id]
     );
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Price List');
 
     sheet.columns = [
-      { header: 'Product Name', key: 'name', width: 25 },
-      { header: 'PCS/Box', key: 'pcs_per_box', width: 15 },
-      { header: 'Price (PCS)', key: 'dp_per_pcs', width: 15 },
-      { header: 'Price (Box)', key: 'dp_per_box', width: 15 }
+      { header: 'Product', key: 'name', width: 25 },
+      { header: 'Unit', key: 'unit', width: 10 },
+      { header: 'PCS/Box', key: 'pcs_per_box', width: 10 },
+      { header: 'DP', key: 'dp_per_pcs', width: 10 },
+      { header: 'Box Price', key: 'box', width: 15 }
     ];
 
     result.rows.forEach(p => {
       sheet.addRow({
         name: p.name,
+        unit: p.unit,
         pcs_per_box: p.pcs_per_box,
         dp_per_pcs: p.dp_per_pcs,
-        dp_per_box: p.dp_per_pcs * p.pcs_per_box
+        box: p.dp_per_pcs * p.pcs_per_box
       });
     });
 
@@ -198,30 +212,7 @@ exports.priceListExcel = async (req, res) => {
     res.end();
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Excel Error" });
-  }
-};
-
-
-
-// 🔥 WHATSAPP SHARE LINK
-exports.sharePriceList = async (req, res) => {
-  try {
-    const brand_id = req.params.brand_id;
-
-    // 👉 production me domain change karna
-    const fileLink = `http://localhost:5000/api/product/price-list-excel/${brand_id}`;
-
-    const whatsappLink = `https://wa.me/?text=Download Price List: ${fileLink}`;
-
-    res.json({
-      message: "Share link ready",
-      whatsapp_link: whatsappLink
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error creating share link" });
+    console.error("EXCEL ERROR ❌", err);
+    res.status(500).json({ success: false });
   }
 };

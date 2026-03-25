@@ -6,7 +6,6 @@ const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
 
 // 🔥 CREATE ORDER
-// ✔ Admin / Staff / Salesman / Retailer
 router.post(
   '/create',
   verifyToken,
@@ -15,8 +14,7 @@ router.post(
 );
 
 
-// 🔥 GET ALL ORDERS
-// ✔ Admin + Staff only
+// 🔥 ALL ORDERS
 router.get(
   '/list',
   verifyToken,
@@ -25,8 +23,16 @@ router.get(
 );
 
 
-// 🔥 GET SINGLE ORDER
-// ✔ All roles (लेकिन restriction controller में)
+// 🔥 MY ORDERS
+router.get(
+  '/my',
+  verifyToken,
+  checkRole('salesman'),
+  controller.myOrders
+);
+
+
+// 🔥 GET ONE
 router.get(
   '/:id',
   verifyToken,
@@ -35,22 +41,11 @@ router.get(
 
 
 // 🔥 UPDATE STATUS
-// ✔ Admin + Staff only
 router.post(
   '/status',
   verifyToken,
   checkRole('admin', 'staff'),
   controller.updateStatus
-);
-
-
-// 🔥 OPTIONAL (future use)
-// ✔ Salesman → apne orders
-router.get(
-  '/my',
-  verifyToken,
-  checkRole('salesman'),
-  controller.myOrders
 );
 
 module.exports = router;

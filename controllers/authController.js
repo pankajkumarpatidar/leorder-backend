@@ -3,23 +3,29 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 
-// ================= REGISTER =================
+// ================= REGISTER (DISTRIBUTOR + ADMIN) =================
 exports.register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const {
+      business_name,
+      person_name,
+      email,
+      password,
+      mobile,
+      gst_no,
+      address
+    } = req.body;
 
-    console.log("REGISTER BODY 👉", req.body);
-
-    if (!name || !email || !password) {
+    if (!business_name || !person_name || !email || !password) {
       return res.json({
         success: false,
-        message: "All fields required"
+        message: "All required fields missing"
       });
     }
 
-    // check existing
+    // 🔹 check existing
     const existing = await pool.query(
-      "SELECT * FROM users WHERE email=$1",
+      `SELECT * FROM users WHERE email=$1`,
       [email]
     );
 
@@ -30,28 +36,50 @@ exports.register = async (req, res) => {
       });
     }
 
-    // hash password
     const hashed = await bcrypt.hash(password, 10);
 
-    // insert user
-    const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, distributor_id)
-       VALUES ($1,$2,$3,$4,NULL)
-       RETURNING *`,
-      [name, email, hashed, "admin"]
+    // 🔥 CREATE DISTRIBUTOR
+    const dist = await pool.query(
+      `INSERT INTO distributors 
+      (business_name, person_name, email, mobile, gst_no, address)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [
+        business_name,
+        person_name,
+        email,
+        mobile || "",
+        gst_no || "",
+        address || ""
+      ]
     );
 
-    const user = result.rows[0];
+    const distributor_id = dist.rows[0].id;
 
-    // set distributor_id = self id
-    await pool.query(
-      "UPDATE users SET distributor_id=$1 WHERE id=$1",
-      [user.id]
+    // 🔥 CREATE ADMIN USER
+    const userRes = await pool.query(
+      `INSERT INTO users 
+      (name,email,password,role,distributor_id)
+      VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [person_name, email, hashed, "admin", distributor_id]
+    );
+
+    const user = userRes.rows[0];
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        distributor_id: user.distributor_id
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
     );
 
     res.json({
       success: true,
-      message: "Account created successfully"
+      message: "Account created",
+      token,
+      user
     });
 
   } catch (err) {
@@ -64,15 +92,14 @@ exports.register = async (req, res) => {
 };
 
 
+
 // ================= LOGIN =================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    console.log("LOGIN BODY 👉", req.body);
-
     const result = await pool.query(
-      "SELECT * FROM users WHERE email=$1",
+      `SELECT * FROM users WHERE email=$1`,
       [email]
     );
 
@@ -120,7 +147,8 @@ exports.login = async (req, res) => {
 };
 
 
-// ================= CREATE USER =================
+
+// ================= CREATE USER (STAFF / SALESMAN) =================
 exports.createUser = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
@@ -132,8 +160,15 @@ exports.createUser = async (req, res) => {
       });
     }
 
+    if (!["staff", "salesman"].includes(role)) {
+      return res.json({
+        success: false,
+        message: "Invalid role"
+      });
+    }
+
     const existing = await pool.query(
-      "SELECT * FROM users WHERE email=$1",
+      `SELECT * FROM users WHERE email=$1`,
       [email]
     );
 
@@ -147,14 +182,21 @@ exports.createUser = async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
 
     await pool.query(
-      `INSERT INTO users (name, email, password, role, distributor_id)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [name, email, hashed, role, req.user.distributor_id]
+      `INSERT INTO users 
+      (name,email,password,role,distributor_id)
+      VALUES ($1,$2,$3,$4,$5)`,
+      [
+        name,
+        email,
+        hashed,
+        role,
+        req.user.distributor_id
+      ]
     );
 
     res.json({
       success: true,
-      message: "User created successfully"
+      message: "User created"
     });
 
   } catch (err) {

@@ -5,7 +5,7 @@ const controller = require('../controllers/brandController');
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
 
-// CREATE
+// 🔥 CREATE
 router.post(
   '/create',
   verifyToken,
@@ -14,7 +14,7 @@ router.post(
 );
 
 
-// LIST
+// 🔥 LIST
 router.get(
   '/list',
   verifyToken,
@@ -22,7 +22,7 @@ router.get(
 );
 
 
-// GET ONE
+// 🔥 GET ONE
 router.get(
   '/:id',
   verifyToken,
@@ -30,7 +30,7 @@ router.get(
 );
 
 
-// UPDATE
+// 🔥 UPDATE
 router.put(
   '/:id',
   verifyToken,
@@ -39,7 +39,7 @@ router.put(
 );
 
 
-// DELETE
+// 🔥 DELETE
 router.delete(
   '/:id',
   verifyToken,

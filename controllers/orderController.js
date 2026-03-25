@@ -15,71 +15,119 @@ exports.create = async (req, res) => {
       });
     }
 
-    const created_by = req.user.id;
     const distributor_id = req.user.distributor_id;
+    const created_by = req.user.id;
 
     await client.query("BEGIN");
 
-    // 🔥 Create order (total = 0 initially)
-    const orderResult = await client.query(
+    // 🔥 CREATE ORDER
+    const orderRes = await client.query(
       `INSERT INTO orders 
-      (retailer_id, total_amount, status, distributor_id, created_by) 
+      (retailer_id, total, status, distributor_id, created_by)
       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [
-        retailer_id,
-        0,
-        "pending",
-        distributor_id,
-        created_by
-      ]
+      [retailer_id, 0, "pending", distributor_id, created_by]
     );
 
-    const order = orderResult.rows[0];
+    const order = orderRes.rows[0];
 
-    let total = 0;
+    let totalAmount = 0;
 
-    // 🔥 Insert items
+    // 🔥 LOOP ITEMS
     for (let item of items) {
-      const itemTotal = item.qty * item.price;
-      total += itemTotal;
 
+      const productRes = await client.query(
+        `SELECT * FROM products 
+         WHERE id=$1 AND distributor_id=$2`,
+        [item.product_id, distributor_id]
+      );
+
+      if (productRes.rows.length === 0) {
+        throw new Error("Product not found");
+      }
+
+      const product = productRes.rows[0];
+
+      const qty = Number(item.qty);
+      const unit = item.unit || "pcs";
+
+      if (!qty || qty <= 0) {
+        throw new Error("Invalid qty");
+      }
+
+      // 🔥 FINAL QTY (PCS BASE)
+      let final_qty = qty;
+
+      if (unit === "box") {
+        final_qty = qty * Number(product.pcs_per_box);
+      }
+
+      // 🔥 BASE PRICE
+      let price = Number(product.dp_per_pcs);
+
+      if (unit === "box") {
+        price = product.dp_per_pcs * product.pcs_per_box;
+      }
+
+      // 🔥 DISCOUNT SUPPORT
+      const trade = Number(item.trade_discount || 0);
+      const special = Number(item.special_discount || 0);
+      const cash = Number(item.cash_discount || 0);
+
+      let net_rate = price;
+
+      net_rate -= (net_rate * trade / 100);
+      net_rate -= (net_rate * special / 100);
+      net_rate -= (net_rate * cash / 100);
+
+      const itemTotal = qty * net_rate;
+      totalAmount += itemTotal;
+
+      // 🔥 INSERT ITEM
       await client.query(
-        `INSERT INTO order_items 
-        (order_id, product_name, qty, price, total, distributor_id) 
-        VALUES ($1,$2,$3,$4,$5,$6)`,
+        `INSERT INTO order_items
+        (order_id, product_id, qty, unit, final_qty, price, total,
+         trade_discount, special_discount, cash_discount, net_rate,
+         distributor_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           order.id,
-          item.product_name || "Product",
-          item.qty,
-          item.price,
+          product.id,
+          qty,
+          unit,
+          final_qty,
+          price,
           itemTotal,
+          trade,
+          special,
+          cash,
+          net_rate,
           distributor_id
         ]
       );
     }
 
-    // 🔥 Update total
+    // 🔥 UPDATE TOTAL
     await client.query(
-      `UPDATE orders SET total_amount=$1 WHERE id=$2`,
-      [total, order.id]
+      `UPDATE orders SET total=$1 WHERE id=$2`,
+      [totalAmount, order.id]
     );
 
     await client.query("COMMIT");
 
     res.json({
       success: true,
-      message: "Order created successfully",
+      message: "Order created",
       order_id: order.id,
-      total
+      total: totalAmount
     });
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("CREATE ORDER ERROR ❌", err);
+    console.error("ORDER ERROR ❌", err);
 
     res.status(500).json({
       success: false,
-      message: "Order creation failed"
+      message: err.message
     });
 
   } finally {
@@ -89,19 +137,20 @@ exports.create = async (req, res) => {
 
 
 
-// ================= LIST ALL =================
+// ================= LIST =================
 exports.list = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM orders 
-       WHERE distributor_id=$1 
-       ORDER BY id DESC`,
+      `SELECT o.*, r.business_name AS retailer_name
+       FROM orders o
+       LEFT JOIN retailers r ON o.retailer_id = r.id
+       WHERE o.distributor_id=$1
+       ORDER BY o.id DESC`,
       [req.user.distributor_id]
     );
 
     res.json({
       success: true,
-      count: result.rows.length,
       data: result.rows
     });
 
@@ -118,19 +167,18 @@ exports.myOrders = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT * FROM orders 
-       WHERE created_by=$1 AND distributor_id=$2 
+       WHERE created_by=$1 AND distributor_id=$2
        ORDER BY id DESC`,
       [req.user.id, req.user.distributor_id]
     );
 
     res.json({
       success: true,
-      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
-    console.error("MY ORDERS ERROR ❌", err);
+    console.error("MY ORDER ERROR ❌", err);
     res.status(500).json({ success: false });
   }
 };
@@ -142,13 +190,15 @@ exports.getOne = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const order = await pool.query(
-      `SELECT * FROM orders 
-       WHERE id=$1 AND distributor_id=$2`,
+    const orderRes = await pool.query(
+      `SELECT o.*, r.business_name AS retailer_name
+       FROM orders o
+       LEFT JOIN retailers r ON o.retailer_id = r.id
+       WHERE o.id=$1 AND o.distributor_id=$2`,
       [id, req.user.distributor_id]
     );
 
-    if (order.rows.length === 0) {
+    if (orderRes.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Order not found"
@@ -156,19 +206,21 @@ exports.getOne = async (req, res) => {
     }
 
     const items = await pool.query(
-      `SELECT * FROM order_items 
-       WHERE order_id=$1 AND distributor_id=$2`,
+      `SELECT oi.*, p.name AS product_name
+       FROM order_items oi
+       LEFT JOIN products p ON oi.product_id = p.id
+       WHERE oi.order_id=$1 AND oi.distributor_id=$2`,
       [id, req.user.distributor_id]
     );
 
     res.json({
       success: true,
-      order: order.rows[0],
+      order: orderRes.rows[0],
       items: items.rows
     });
 
   } catch (err) {
-    console.error("GET ONE ERROR ❌", err);
+    console.error("GET ORDER ERROR ❌", err);
     res.status(500).json({ success: false });
   }
 };
@@ -180,7 +232,7 @@ exports.updateStatus = async (req, res) => {
   try {
     const { order_id, status } = req.body;
 
-    if (!['pending', 'approved', 'rejected'].includes(status)) {
+    if (!["pending", "approved", "rejected"].includes(status)) {
       return res.status(400).json({
         success: false,
         message: "Invalid status"
@@ -189,18 +241,11 @@ exports.updateStatus = async (req, res) => {
 
     const result = await pool.query(
       `UPDATE orders 
-       SET status=$1 
-       WHERE id=$2 AND distributor_id=$3 
+       SET status=$1
+       WHERE id=$2 AND distributor_id=$3
        RETURNING *`,
       [status, order_id, req.user.distributor_id]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found or access denied"
-      });
-    }
 
     res.json({
       success: true,

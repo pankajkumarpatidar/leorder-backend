@@ -5,7 +5,7 @@ const controller = require('../controllers/salesmanController');
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
 
-// 🔥 CREATE (ADMIN ONLY)
+// 🔥 CREATE
 router.post(
   '/create',
   verifyToken,
@@ -18,7 +18,6 @@ router.post(
 router.get(
   '/list',
   verifyToken,
-  checkRole('admin', 'staff'),
   controller.list
 );
 
@@ -47,6 +46,5 @@ router.delete(
   checkRole('admin'),
   controller.delete
 );
-
 
 module.exports = router;

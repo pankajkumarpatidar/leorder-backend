@@ -4,17 +4,17 @@ const router = express.Router();
 const controller = require('../controllers/authController');
 const { verifyToken, checkRole } = require('../middleware/authMiddleware');
 
-// 🔥 REGISTER (Distributor signup)
-router.post('/register', controller.register);
 
-// 🔥 LOGIN
+// 🔓 PUBLIC
+router.post('/register', controller.register);
 router.post('/login', controller.login);
 
-// 🔥 CREATE USER (Distributor → Staff / Salesman)
+
+// 🔒 CREATE USER (ADMIN ONLY)
 router.post(
   '/create-user',
   verifyToken,
-  checkRole('admin'), // distributor only
+  checkRole('admin'),
   controller.createUser
 );
 
