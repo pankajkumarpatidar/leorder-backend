@@ -1,22 +1,13 @@
 const express = require("express");
 const router = express.Router();
 
-const lead = require("../controllers/lead.controller");
-const { verifyToken } = require("../middleware/auth");
+const lead = require("../controllers/leadController");
+const { verifyToken } = require("../middleware/authMiddleware");
 
-router.use(verifyToken);
-
-// CREATE
-router.post("/create", lead.create);
-
-// LIST
-router.get("/list", lead.list);
-router.get("/my", lead.myLeads);
-
-// 🔥 FIXED (body based, NOT param)
-router.put("/status", lead.updateStatus);
-
-// CONVERT
-router.post("/convert", lead.convertToRetailer);
+router.post("/", verifyToken, lead.create);
+router.get("/list", verifyToken, lead.list);
+router.get("/my", verifyToken, lead.myLeads);
+router.put("/status", verifyToken, lead.updateStatus);
+router.post("/convert", verifyToken, lead.convertToRetailer);
 
 module.exports = router;

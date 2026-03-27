@@ -1,16 +1,14 @@
 const express = require("express");
 const router = express.Router();
 
-const product = require("../controllers/product.controller");
-const { verifyToken, checkRole } = require("../middleware/auth");
+const product = require("../controllers/productController");
+const { verifyToken } = require("../middleware/authMiddleware");
 
-router.use(verifyToken);
+router.post("/", verifyToken, product.create);
+router.put("/", verifyToken, product.update);
+router.get("/", verifyToken, product.list);
 
-router.post("/create", checkRole("admin"), product.create);
-router.put("/update", checkRole("admin"), product.update);
-
-router.get("/list", product.list);
-router.get("/price-list/:brand_id", product.priceList);
-router.get("/price-list-excel/:brand_id", product.priceListExcel);
+router.get("/price-list/:brand_id", verifyToken, product.priceList);
+router.get("/price-list-excel/:brand_id", verifyToken, product.priceListExcel);
 
 module.exports = router;
