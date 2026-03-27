@@ -1,52 +1,22 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
-const controller = require('../controllers/leadController');
-const { verifyToken, checkRole } = require('../middleware/authMiddleware');
+const lead = require("../controllers/lead.controller");
+const { verifyToken } = require("../middleware/auth");
 
+router.use(verifyToken);
 
-// 🔥 CREATE (SALESMAN)
-router.post(
-  '/create',
-  verifyToken,
-  checkRole('salesman'),
-  controller.create
-);
+// CREATE
+router.post("/create", lead.create);
 
+// LIST
+router.get("/list", lead.list);
+router.get("/my", lead.myLeads);
 
-// 🔥 ALL LEADS
-router.get(
-  '/list',
-  verifyToken,
-  checkRole('admin', 'staff'),
-  controller.list
-);
+// 🔥 FIXED (body based, NOT param)
+router.put("/status", lead.updateStatus);
 
-
-// 🔥 MY LEADS
-router.get(
-  '/my',
-  verifyToken,
-  checkRole('salesman'),
-  controller.myLeads
-);
-
-
-// 🔥 UPDATE STATUS
-router.post(
-  '/status',
-  verifyToken,
-  checkRole('admin', 'staff'),
-  controller.updateStatus
-);
-
-
-// 🔥 CONVERT
-router.post(
-  '/convert',
-  verifyToken,
-  checkRole('admin', 'staff'),
-  controller.convertToRetailer
-);
+// CONVERT
+router.post("/convert", lead.convertToRetailer);
 
 module.exports = router;

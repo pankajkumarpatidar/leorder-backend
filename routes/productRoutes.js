@@ -1,49 +1,16 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
-const controller = require('../controllers/productController');
-const { verifyToken, checkRole } = require('../middleware/authMiddleware');
+const product = require("../controllers/product.controller");
+const { verifyToken, checkRole } = require("../middleware/auth");
 
+router.use(verifyToken);
 
-// 🔥 CREATE
-router.post(
-  '/create',
-  verifyToken,
-  checkRole('admin'),
-  controller.create
-);
+router.post("/create", checkRole("admin"), product.create);
+router.put("/update", checkRole("admin"), product.update);
 
-
-// 🔥 UPDATE
-router.put(
-  '/update',
-  verifyToken,
-  checkRole('admin', 'staff'),
-  controller.update
-);
-
-
-// 🔥 LIST
-router.get(
-  '/list',
-  verifyToken,
-  controller.list
-);
-
-
-// 🔥 PRICE LIST
-router.get(
-  '/price-list/:brand_id',
-  verifyToken,
-  controller.priceList
-);
-
-
-// 🔥 EXCEL
-router.get(
-  '/price-list-excel/:brand_id',
-  verifyToken,
-  controller.priceListExcel
-);
+router.get("/list", product.list);
+router.get("/price-list/:brand_id", product.priceList);
+router.get("/price-list-excel/:brand_id", product.priceListExcel);
 
 module.exports = router;

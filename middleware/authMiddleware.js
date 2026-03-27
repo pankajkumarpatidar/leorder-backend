@@ -4,9 +4,9 @@ const jwt = require("jsonwebtoken");
 // ================= VERIFY TOKEN =================
 exports.verifyToken = (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    let authHeader = req.headers.authorization || req.headers.Authorization;
 
-    // ❌ No header
+    // ✅ Header missing
     if (!authHeader) {
       return res.status(401).json({
         success: false,
@@ -14,17 +14,14 @@ exports.verifyToken = (req, res, next) => {
       });
     }
 
-    // ❌ Wrong format
-    if (!authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid token format (Bearer required)",
-      });
+    // ✅ Support: Bearer / token only
+    let token;
+    if (authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    } else {
+      token = authHeader; // fallback (mobile apps etc.)
     }
 
-    const token = authHeader.split(" ")[1];
-
-    // ❌ No token
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -32,11 +29,11 @@ exports.verifyToken = (req, res, next) => {
       });
     }
 
-    // 🔓 VERIFY TOKEN
+    // 🔓 VERIFY
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // ❌ Required fields check
-    if (!decoded.id || !decoded.role) {
+    // ✅ STRICT CHECK
+    if (!decoded.id || !decoded.role || !decoded.distributor_id) {
       return res.status(403).json({
         success: false,
         message: "Invalid token payload",
@@ -47,19 +44,18 @@ exports.verifyToken = (req, res, next) => {
     req.user = {
       id: decoded.id,
       role: decoded.role,
-      distributor_id: decoded.distributor_id || null,
+      distributor_id: decoded.distributor_id,
     };
 
     next();
 
   } catch (err) {
-    console.error("AUTH ERROR ❌", err.message);
+    console.error("AUTH ERROR ❌", err.name, err.message);
 
-    // 🔥 Specific error handling
     if (err.name === "TokenExpiredError") {
       return res.status(401).json({
         success: false,
-        message: "Token expired, please login again",
+        message: "Session expired, login again",
       });
     }
 
@@ -83,7 +79,6 @@ exports.verifyToken = (req, res, next) => {
 exports.checkRole = (...allowedRoles) => {
   return (req, res, next) => {
     try {
-      // ❌ No user
       if (!req.user) {
         return res.status(401).json({
           success: false,
@@ -91,21 +86,17 @@ exports.checkRole = (...allowedRoles) => {
         });
       }
 
-      const userRole = req.user.role;
-
-      // ❌ No role
-      if (!userRole) {
+      if (!req.user.role) {
         return res.status(403).json({
           success: false,
           message: "User role missing",
         });
       }
 
-      // ❌ Not allowed
-      if (!allowedRoles.includes(userRole)) {
+      if (!allowedRoles.includes(req.user.role)) {
         return res.status(403).json({
           success: false,
-          message: `Access denied (${userRole})`,
+          message: `Access denied for role: ${req.user.role}`,
         });
       }
 
@@ -114,7 +105,7 @@ exports.checkRole = (...allowedRoles) => {
     } catch (err) {
       console.error("ROLE ERROR ❌", err.message);
 
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: "Role check failed",
       });
@@ -124,13 +115,41 @@ exports.checkRole = (...allowedRoles) => {
 
 
 
-// ================= OPTIONAL ADMIN CHECK =================
+// ================= ADMIN ONLY =================
 exports.isAdmin = (req, res, next) => {
-  if (req.user?.role !== "admin") {
+  if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({
       success: false,
       message: "Admin access only",
     });
   }
   next();
+};
+
+
+
+// ================= OPTIONAL: OWNER CHECK =================
+// (use when resource must belong to user)
+exports.isOwner = (getUserIdFn) => {
+  return async (req, res, next) => {
+    try {
+      const ownerId = await getUserIdFn(req);
+
+      if (!ownerId || ownerId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied (not owner)",
+        });
+      }
+
+      next();
+
+    } catch (err) {
+      console.error("OWNER CHECK ERROR ❌", err.message);
+      res.status(500).json({
+        success: false,
+        message: "Owner check failed",
+      });
+    }
+  };
 };

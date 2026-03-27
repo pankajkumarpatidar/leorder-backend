@@ -1,21 +1,13 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
-const controller = require('../controllers/authController');
-const { verifyToken, checkRole } = require('../middleware/authMiddleware');
+const auth = require("../controllers/auth.controller");
 
+// PUBLIC
+router.post("/register", auth.register);
+router.post("/login", auth.login);
 
-// 🔓 PUBLIC
-router.post('/register', controller.register);
-router.post('/login', controller.login);
-
-
-// 🔒 CREATE USER (ADMIN ONLY)
-router.post(
-  '/create-user',
-  verifyToken,
-  checkRole('admin'),
-  controller.createUser
-);
+// PRIVATE
+router.post("/create-user", verifyToken, checkRole("admin"), auth.createUser);
 
 module.exports = router;

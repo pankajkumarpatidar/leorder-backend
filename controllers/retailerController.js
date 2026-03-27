@@ -13,6 +13,15 @@ exports.create = async (req, res) => {
       pincode
     } = req.body;
 
+    // ✅ ROLE CHECK (ADMIN + STAFF)
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Not allowed"
+      });
+    }
+
+    // ✅ VALIDATION
     if (!business_name || !mobile) {
       return res.status(400).json({
         success: false,
@@ -20,15 +29,17 @@ exports.create = async (req, res) => {
       });
     }
 
-    // 🔹 duplicate check (same distributor)
+    const cleanName = business_name.trim();
+
+    // 🔹 DUPLICATE CHECK
     const existing = await pool.query(
-      `SELECT * FROM retailers 
+      `SELECT id FROM retailers 
        WHERE mobile=$1 AND distributor_id=$2`,
       [mobile, req.user.distributor_id]
     );
 
     if (existing.rows.length > 0) {
-      return res.json({
+      return res.status(409).json({
         success: false,
         message: "Retailer already exists"
       });
@@ -40,7 +51,7 @@ exports.create = async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6,$7)
       RETURNING *`,
       [
-        business_name,
+        cleanName,
         email || "",
         mobile,
         gst_no || "",
@@ -85,7 +96,10 @@ exports.list = async (req, res) => {
 
   } catch (err) {
     console.error("LIST RETAILER ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -116,7 +130,10 @@ exports.getOne = async (req, res) => {
 
   } catch (err) {
     console.error("GET RETAILER ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -136,6 +153,21 @@ exports.update = async (req, res) => {
       pincode
     } = req.body;
 
+    // ✅ ROLE CHECK
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Not allowed"
+      });
+    }
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Retailer id required"
+      });
+    }
+
     const result = await pool.query(
       `UPDATE retailers 
        SET 
@@ -148,12 +180,12 @@ exports.update = async (req, res) => {
        WHERE id=$7 AND distributor_id=$8
        RETURNING *`,
       [
-        business_name,
-        email,
+        business_name?.trim() || "",
+        email || "",
         mobile,
-        gst_no,
-        address,
-        pincode,
+        gst_no || "",
+        address || "",
+        pincode || "",
         id,
         req.user.distributor_id
       ]
@@ -174,7 +206,10 @@ exports.update = async (req, res) => {
 
   } catch (err) {
     console.error("UPDATE RETAILER ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -184,6 +219,14 @@ exports.update = async (req, res) => {
 exports.delete = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // ✅ ROLE CHECK (ADMIN ONLY)
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can delete retailer"
+      });
+    }
 
     const result = await pool.query(
       `DELETE FROM retailers 
@@ -206,6 +249,9 @@ exports.delete = async (req, res) => {
 
   } catch (err) {
     console.error("DELETE RETAILER ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };

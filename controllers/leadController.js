@@ -6,6 +6,15 @@ exports.create = async (req, res) => {
   try {
     const { mobile, brand_id } = req.body;
 
+    // ✅ ROLE CHECK (ONLY SALESMAN)
+    if (req.user.role !== "salesman") {
+      return res.status(403).json({
+        success: false,
+        message: "Only salesman can create lead"
+      });
+    }
+
+    // ✅ VALIDATION
     if (!mobile || !brand_id) {
       return res.status(400).json({
         success: false,
@@ -16,17 +25,17 @@ exports.create = async (req, res) => {
     const distributor_id = req.user.distributor_id;
     const salesman_id = req.user.id;
 
-    // 🔹 duplicate check
+    // 🔹 DUPLICATE CHECK (FIXED 🔥)
     const existing = await pool.query(
-      `SELECT * FROM leads 
-       WHERE mobile=$1 AND distributor_id=$2`,
-      [mobile, distributor_id]
+      `SELECT id FROM leads 
+       WHERE mobile=$1 AND brand_id=$2 AND distributor_id=$3`,
+      [mobile, brand_id, distributor_id]
     );
 
     if (existing.rows.length > 0) {
-      return res.json({
+      return res.status(409).json({
         success: false,
-        message: "Lead already exists"
+        message: "Lead already exists for this brand"
       });
     }
 
@@ -51,7 +60,10 @@ exports.create = async (req, res) => {
 
   } catch (err) {
     console.error("CREATE LEAD ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -71,12 +83,16 @@ exports.list = async (req, res) => {
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
     console.error("LIST LEAD ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -94,12 +110,16 @@ exports.myLeads = async (req, res) => {
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
     console.error("MY LEADS ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -110,10 +130,18 @@ exports.updateStatus = async (req, res) => {
   try {
     const { lead_id, status } = req.body;
 
-    if (!["approved", "rejected"].includes(status)) {
+    // ✅ ROLE CHECK (ADMIN / STAFF ONLY)
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Not allowed"
+      });
+    }
+
+    if (!lead_id || !["approved", "rejected"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid status"
+        message: "Invalid data"
       });
     }
 
@@ -140,7 +168,10 @@ exports.updateStatus = async (req, res) => {
 
   } catch (err) {
     console.error("STATUS ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -158,9 +189,17 @@ exports.convertToRetailer = async (req, res) => {
       pincode
     } = req.body;
 
+    // ✅ ROLE CHECK
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Not allowed"
+      });
+    }
+
     const distributor_id = req.user.distributor_id;
 
-    // 🔹 get lead
+    // 🔹 GET LEAD
     const leadRes = await pool.query(
       `SELECT * FROM leads 
        WHERE id=$1 AND distributor_id=$2`,
@@ -168,7 +207,7 @@ exports.convertToRetailer = async (req, res) => {
     );
 
     if (leadRes.rows.length === 0) {
-      return res.status(400).json({
+      return res.status(404).json({
         success: false,
         message: "Lead not found"
       });
@@ -183,9 +222,9 @@ exports.convertToRetailer = async (req, res) => {
       });
     }
 
-    // 🔹 check retailer duplicate
+    // 🔹 CHECK RETAILER DUPLICATE
     const existing = await pool.query(
-      `SELECT * FROM retailers 
+      `SELECT id FROM retailers 
        WHERE mobile=$1 AND distributor_id=$2`,
       [lead.mobile, distributor_id]
     );
@@ -213,7 +252,7 @@ exports.convertToRetailer = async (req, res) => {
       retailer = newRetailer.rows[0];
     }
 
-    // 🔹 update lead
+    // 🔹 UPDATE LEAD
     await pool.query(
       `UPDATE leads SET status='converted' WHERE id=$1`,
       [lead_id]
@@ -227,6 +266,9 @@ exports.convertToRetailer = async (req, res) => {
 
   } catch (err) {
     console.error("CONVERT ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };

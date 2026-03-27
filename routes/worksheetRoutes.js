@@ -1,52 +1,18 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
-const controller = require('../controllers/worksheetController');
-const { verifyToken, checkRole } = require('../middleware/authMiddleware');
+const worksheet = require("../controllers/worksheet.controller");
+const { verifyToken } = require("../middleware/auth");
 
+router.use(verifyToken);
 
-// 🔥 CREATE
-router.post(
-  '/create',
-  verifyToken,
-  checkRole('salesman', 'staff'),
-  controller.create
-);
+router.post("/create", worksheet.create);
 
+router.get("/list", worksheet.list);
+router.get("/my", worksheet.myData);
 
-// 🔥 LIST
-router.get(
-  '/list',
-  verifyToken,
-  checkRole('admin', 'staff'),
-  controller.list
-);
+router.put("/status", worksheet.updateStatus);
 
-
-// 🔥 MY DATA
-router.get(
-  '/my',
-  verifyToken,
-  checkRole('salesman'),
-  controller.myData
-);
-
-
-// 🔥 UPDATE STATUS
-router.post(
-  '/status',
-  verifyToken,
-  checkRole('admin', 'staff'),
-  controller.updateStatus
-);
-
-
-// 🔥 CONVERT TO LEAD
-router.post(
-  '/convert',
-  verifyToken,
-  checkRole('salesman', 'staff'),
-  controller.convertToLead
-);
+router.post("/convert", worksheet.convertToLead);
 
 module.exports = router;

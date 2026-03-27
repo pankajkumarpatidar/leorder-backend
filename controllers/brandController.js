@@ -6,22 +6,33 @@ exports.create = async (req, res) => {
   try {
     const { name } = req.body;
 
-    if (!name) {
+    // ✅ ROLE CHECK (ADMIN ONLY)
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can create brand"
+      });
+    }
+
+    // ✅ VALIDATION
+    if (!name || name.trim() === "") {
       return res.status(400).json({
         success: false,
         message: "Brand name required"
       });
     }
 
-    // 🔹 duplicate check (same distributor)
+    const cleanName = name.trim();
+
+    // 🔹 DUPLICATE CHECK
     const existing = await pool.query(
-      `SELECT * FROM brands 
+      `SELECT id FROM brands 
        WHERE LOWER(name)=LOWER($1) AND distributor_id=$2`,
-      [name, req.user.distributor_id]
+      [cleanName, req.user.distributor_id]
     );
 
     if (existing.rows.length > 0) {
-      return res.json({
+      return res.status(409).json({
         success: false,
         message: "Brand already exists"
       });
@@ -30,7 +41,7 @@ exports.create = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO brands (name, distributor_id)
        VALUES ($1,$2) RETURNING *`,
-      [name, req.user.distributor_id]
+      [cleanName, req.user.distributor_id]
     );
 
     res.json({
@@ -41,7 +52,10 @@ exports.create = async (req, res) => {
 
   } catch (err) {
     console.error("CREATE BRAND ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -59,12 +73,16 @@ exports.list = async (req, res) => {
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
     console.error("LIST BRAND ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -95,7 +113,10 @@ exports.getOne = async (req, res) => {
 
   } catch (err) {
     console.error("GET BRAND ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -107,12 +128,44 @@ exports.update = async (req, res) => {
     const { id } = req.params;
     const { name } = req.body;
 
+    // ✅ ROLE CHECK
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can update brand"
+      });
+    }
+
+    if (!name || name.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Brand name required"
+      });
+    }
+
+    const cleanName = name.trim();
+
+    // 🔹 DUPLICATE CHECK (EXCLUDE SAME ID)
+    const duplicate = await pool.query(
+      `SELECT id FROM brands 
+       WHERE LOWER(name)=LOWER($1) 
+       AND distributor_id=$2 AND id != $3`,
+      [cleanName, req.user.distributor_id, id]
+    );
+
+    if (duplicate.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Brand name already exists"
+      });
+    }
+
     const result = await pool.query(
       `UPDATE brands 
        SET name=$1
        WHERE id=$2 AND distributor_id=$3
        RETURNING *`,
-      [name, id, req.user.distributor_id]
+      [cleanName, id, req.user.distributor_id]
     );
 
     if (result.rows.length === 0) {
@@ -130,7 +183,10 @@ exports.update = async (req, res) => {
 
   } catch (err) {
     console.error("UPDATE BRAND ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -140,6 +196,14 @@ exports.update = async (req, res) => {
 exports.delete = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // ✅ ROLE CHECK
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can delete brand"
+      });
+    }
 
     const result = await pool.query(
       `DELETE FROM brands 
@@ -162,6 +226,9 @@ exports.delete = async (req, res) => {
 
   } catch (err) {
     console.error("DELETE BRAND ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };

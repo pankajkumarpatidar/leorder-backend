@@ -8,6 +8,15 @@ exports.create = async (req, res) => {
   try {
     const { retailer_id, items } = req.body;
 
+    // ✅ ROLE CHECK
+    if (!["admin", "salesman"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Not allowed"
+      });
+    }
+
+    // ✅ VALIDATION
     if (!retailer_id || !items || items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -20,10 +29,10 @@ exports.create = async (req, res) => {
 
     await client.query("BEGIN");
 
-    // 🔥 CREATE ORDER
+    // 🔥 CREATE ORDER (FIXED total_amount 🔥)
     const orderRes = await client.query(
       `INSERT INTO orders 
-      (retailer_id, total, status, distributor_id, created_by)
+      (retailer_id, total_amount, status, distributor_id, created_by)
       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [retailer_id, 0, "pending", distributor_id, created_by]
     );
@@ -34,6 +43,10 @@ exports.create = async (req, res) => {
 
     // 🔥 LOOP ITEMS
     for (let item of items) {
+
+      if (!item.product_id) {
+        throw new Error("Product required");
+      }
 
       const productRes = await client.query(
         `SELECT * FROM products 
@@ -54,27 +67,24 @@ exports.create = async (req, res) => {
         throw new Error("Invalid qty");
       }
 
-      // 🔥 FINAL QTY (PCS BASE)
+      // 🔥 FINAL QTY
       let final_qty = qty;
-
       if (unit === "box") {
-        final_qty = qty * Number(product.pcs_per_box);
+        final_qty = qty * Number(product.pcs_per_box || 0);
       }
 
       // 🔥 BASE PRICE
-      let price = Number(product.dp_per_pcs);
-
+      let price = Number(product.dp_per_pcs || 0);
       if (unit === "box") {
-        price = product.dp_per_pcs * product.pcs_per_box;
+        price = price * Number(product.pcs_per_box || 0);
       }
 
-      // 🔥 DISCOUNT SUPPORT
+      // 🔥 DISCOUNTS
       const trade = Number(item.trade_discount || 0);
       const special = Number(item.special_discount || 0);
       const cash = Number(item.cash_discount || 0);
 
       let net_rate = price;
-
       net_rate -= (net_rate * trade / 100);
       net_rate -= (net_rate * special / 100);
       net_rate -= (net_rate * cash / 100);
@@ -106,9 +116,9 @@ exports.create = async (req, res) => {
       );
     }
 
-    // 🔥 UPDATE TOTAL
+    // 🔥 UPDATE TOTAL (FIXED 🔥)
     await client.query(
-      `UPDATE orders SET total=$1 WHERE id=$2`,
+      `UPDATE orders SET total_amount=$1 WHERE id=$2`,
       [totalAmount, order.id]
     );
 
@@ -118,7 +128,7 @@ exports.create = async (req, res) => {
       success: true,
       message: "Order created",
       order_id: order.id,
-      total: totalAmount
+      total_amount: totalAmount
     });
 
   } catch (err) {
@@ -151,12 +161,16 @@ exports.list = async (req, res) => {
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
     console.error("LIST ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -174,12 +188,16 @@ exports.myOrders = async (req, res) => {
 
     res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows
     });
 
   } catch (err) {
     console.error("MY ORDER ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -221,7 +239,10 @@ exports.getOne = async (req, res) => {
 
   } catch (err) {
     console.error("GET ORDER ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -232,10 +253,18 @@ exports.updateStatus = async (req, res) => {
   try {
     const { order_id, status } = req.body;
 
-    if (!["pending", "approved", "rejected"].includes(status)) {
+    // ✅ ROLE CHECK
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can update status"
+      });
+    }
+
+    if (!order_id || !["pending", "approved", "rejected"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid status"
+        message: "Invalid data"
       });
     }
 
@@ -247,6 +276,13 @@ exports.updateStatus = async (req, res) => {
       [status, order_id, req.user.distributor_id]
     );
 
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
     res.json({
       success: true,
       message: "Status updated",
@@ -255,6 +291,9 @@ exports.updateStatus = async (req, res) => {
 
   } catch (err) {
     console.error("STATUS ERROR ❌", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };

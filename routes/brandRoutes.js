@@ -1,50 +1,15 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 
-const controller = require('../controllers/brandController');
-const { verifyToken, checkRole } = require('../middleware/authMiddleware');
+const brand = require("../controllers/brand.controller");
+const { verifyToken } = require("../middleware/auth");
 
+router.use(verifyToken);
 
-// 🔥 CREATE
-router.post(
-  '/create',
-  verifyToken,
-  checkRole('admin'),
-  controller.create
-);
-
-
-// 🔥 LIST
-router.get(
-  '/list',
-  verifyToken,
-  controller.list
-);
-
-
-// 🔥 GET ONE
-router.get(
-  '/:id',
-  verifyToken,
-  controller.getOne
-);
-
-
-// 🔥 UPDATE
-router.put(
-  '/:id',
-  verifyToken,
-  checkRole('admin'),
-  controller.update
-);
-
-
-// 🔥 DELETE
-router.delete(
-  '/:id',
-  verifyToken,
-  checkRole('admin'),
-  controller.delete
-);
+router.post("/create", brand.create);
+router.get("/list", brand.list);
+router.get("/:id", brand.getOne);
+router.put("/:id", brand.update);
+router.delete("/:id", brand.delete);
 
 module.exports = router;
