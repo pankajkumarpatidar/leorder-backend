@@ -1,7 +1,7 @@
 const pool = require("../config/db");
 const bcrypt = require("bcrypt");
 
-// CREATE USER (ALT ROUTE)
+// ===== CREATE USER =====
 exports.create = async (req, res) => {
   try {
     const { name, email, password, role, mobile } = req.body;
@@ -44,7 +44,7 @@ exports.create = async (req, res) => {
         hashed,
         role,
         req.user.distributor_id,
-        mobile || "",
+        mobile || null,
       ]
     );
 
@@ -52,7 +52,9 @@ exports.create = async (req, res) => {
       success: true,
       message: "User created",
     });
+
   } catch (err) {
+    console.log("CREATE USER ERROR:", err);
     res.status(500).json({
       success: false,
       message: err.message,
@@ -60,13 +62,13 @@ exports.create = async (req, res) => {
   }
 };
 
-// LIST USERS
+// ===== LIST USERS =====
 exports.list = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id,name,email,role,mobile 
        FROM users
-       WHERE distributor_id=$1 
+       WHERE distributor_id=$1
        ORDER BY id DESC`,
       [req.user.distributor_id]
     );
@@ -75,7 +77,33 @@ exports.list = async (req, res) => {
       success: true,
       data: result.rows,
     });
+
   } catch (err) {
+    console.log("LIST USER ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+// ===== CURRENT USER (🔥 IMPORTANT FIX) =====
+exports.me = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id,name,email,role 
+       FROM users 
+       WHERE id=$1`,
+      [req.user.id]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+
+  } catch (err) {
+    console.log("ME ERROR:", err);
     res.status(500).json({
       success: false,
       message: err.message,
