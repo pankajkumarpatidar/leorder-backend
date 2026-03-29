@@ -4,24 +4,27 @@ const pool = require("../config/db");
 exports.list = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM leads 
-       WHERE distributor_id=$1 
+      `SELECT * FROM leads
+       WHERE distributor_id=$1
        ORDER BY id DESC`,
       [req.user.distributor_id]
     );
 
     res.json({ success: true, data: result.rows });
+
   } catch (err) {
     console.log("LIST ERROR:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
+
 // ===== CREATE =====
 exports.create = async (req, res) => {
   try {
     const { mobile, brand_id, retailer_id } = req.body;
 
+    // ✅ VALIDATION
     if (!mobile || !brand_id) {
       return res.status(400).json({
         success: false,
@@ -29,30 +32,60 @@ exports.create = async (req, res) => {
       });
     }
 
-    // ✅ salesman id auto assign
+    // ✅ MOBILE VALIDATION
+    if (!/^[0-9]{10}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid mobile",
+      });
+    }
+
+    // ✅ DUPLICATE CHECK (same distributor + mobile)
+    const exists = await pool.query(
+      `SELECT id FROM leads 
+       WHERE mobile=$1 AND distributor_id=$2`,
+      [mobile, req.user.distributor_id]
+    );
+
+    if (exists.rows.length) {
+      return res.status(409).json({
+        success: false,
+        message: "Lead already exists",
+      });
+    }
+
+    // ✅ SALESMAN AUTO ASSIGN
     const salesman_id =
       req.user.role === "salesman" ? req.user.id : null;
 
     await pool.query(
-      `INSERT INTO leads 
+      `INSERT INTO leads
       (mobile, brand_id, retailer_id, distributor_id, salesman_id, status)
-      VALUES ($1,$2,$3,$4,$5,'pending')`,
+      VALUES ($1,$2,$3,$4,$5,$6)`,
       [
         mobile,
         brand_id,
         retailer_id || null,
         req.user.distributor_id,
         salesman_id,
+        "pending", // 🔥 SAFE VALUE
       ]
     );
 
-    res.json({ success: true, message: "Lead created" });
+    res.json({
+      success: true,
+      message: "Lead created",
+    });
 
   } catch (err) {
     console.log("CREATE ERROR:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
+
 
 // ===== UPDATE STATUS =====
 exports.updateStatus = async (req, res) => {
@@ -67,7 +100,7 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    // ✅ ALLOWED STATUS ONLY
+    // ✅ ALLOWED STATUS
     const allowed = ["pending", "approved", "rejected"];
     if (!allowed.includes(status)) {
       return res.status(400).json({
@@ -76,22 +109,21 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    // ✅ EXTRA SECURITY (double check)
+    // ❌ SALESMAN BLOCK
     if (req.user.role === "salesman") {
       return res.status(403).json({
         success: false,
-        message: "Not allowed",
+        message: "Salesman cannot change status",
       });
     }
 
     const result = await pool.query(
-      `UPDATE leads 
-       SET status=$1 
+      `UPDATE leads
+       SET status=$1
        WHERE id=$2 AND distributor_id=$3`,
       [status, id, req.user.distributor_id]
     );
 
-    // ✅ if id not found
     if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
@@ -99,10 +131,16 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    res.json({ success: true, message: "Status updated" });
+    res.json({
+      success: true,
+      message: "Status updated",
+    });
 
   } catch (err) {
     console.log("UPDATE ERROR:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
