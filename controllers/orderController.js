@@ -4,7 +4,28 @@ exports.create = async (req,res)=>{
   const client = await pool.connect();
   try{
     const {retailer_id,items} = req.body;
+
     await client.query("BEGIN");
+
+    // 🔥 NEW: CHECK LEAD APPROVED
+    if (retailer_id) {
+      const leadCheck = await client.query(
+        `SELECT id FROM leads
+         WHERE retailer_id=$1
+         AND distributor_id=$2
+         AND status='approved'
+         LIMIT 1`,
+        [retailer_id, req.user.distributor_id]
+      );
+
+      if (!leadCheck.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          success: false,
+          message: "Retailer lead not approved",
+        });
+      }
+    }
 
     const order = await client.query(
       `INSERT INTO orders (retailer_id,total,status,distributor_id,created_by)
@@ -19,6 +40,7 @@ exports.create = async (req,res)=>{
         `SELECT dp_per_pcs FROM products WHERE id=$1 AND distributor_id=$2`,
         [i.product_id,req.user.distributor_id]
       );
+
       const price = p.rows[0].dp_per_pcs;
       const t = price * i.qty;
       total += t;
@@ -30,10 +52,15 @@ exports.create = async (req,res)=>{
       );
     }
 
-    await client.query(`UPDATE orders SET total=$1 WHERE id=$2`,[total,order.rows[0].id]);
+    await client.query(
+      `UPDATE orders SET total=$1 WHERE id=$2`,
+      [total,order.rows[0].id]
+    );
+
     await client.query("COMMIT");
 
     res.json({success:true,total});
+
   }catch(e){
     await client.query("ROLLBACK");
     res.status(500).json({success:false,message:e.message});

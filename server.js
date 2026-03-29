@@ -20,6 +20,9 @@ app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
 app.use("/api/worksheets", require("./routes/worksheetRoutes"));
 
+// 🔥 NEW (brand assign system)
+app.use("/api/user-brands", require("./routes/userBrandRoutes"));
+
 // ROOT
 app.get("/", (req, res) => {
   res.send("API Running 🚀");

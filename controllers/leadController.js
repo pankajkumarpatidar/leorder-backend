@@ -3,12 +3,26 @@ const pool = require("../config/db");
 // ===== LIST =====
 exports.list = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT * FROM leads
-       WHERE distributor_id=$1
-       ORDER BY id DESC`,
-      [req.user.distributor_id]
-    );
+    let result;
+
+    // 🔥 SALESMAN → only his brands
+    if (req.user.role === "salesman") {
+      result = await pool.query(
+        `SELECT * FROM leads
+         WHERE distributor_id=$1
+         AND brand_id = ANY($2)
+         ORDER BY id DESC`,
+        [req.user.distributor_id, req.user.brand_ids]
+      );
+    } else {
+      // ✅ admin / staff
+      result = await pool.query(
+        `SELECT * FROM leads
+         WHERE distributor_id=$1
+         ORDER BY id DESC`,
+        [req.user.distributor_id]
+      );
+    }
 
     res.json({ success: true, data: result.rows });
 
@@ -24,7 +38,6 @@ exports.create = async (req, res) => {
   try {
     const { mobile, brand_id, retailer_id } = req.body;
 
-    // ✅ VALIDATION
     if (!mobile || !brand_id) {
       return res.status(400).json({
         success: false,
@@ -32,7 +45,6 @@ exports.create = async (req, res) => {
       });
     }
 
-    // ✅ MOBILE VALIDATION
     if (!/^[0-9]{10}$/.test(mobile)) {
       return res.status(400).json({
         success: false,
@@ -40,7 +52,16 @@ exports.create = async (req, res) => {
       });
     }
 
-    // ✅ DUPLICATE CHECK (same distributor + mobile)
+    // 🔥 SALESMAN BRAND VALIDATION
+    if (req.user.role === "salesman") {
+      if (!req.user.brand_ids.includes(Number(brand_id))) {
+        return res.status(403).json({
+          success: false,
+          message: "Not allowed for this brand",
+        });
+      }
+    }
+
     const exists = await pool.query(
       `SELECT id FROM leads 
        WHERE mobile=$1 AND distributor_id=$2`,
@@ -54,7 +75,6 @@ exports.create = async (req, res) => {
       });
     }
 
-    // ✅ SALESMAN AUTO ASSIGN
     const salesman_id =
       req.user.role === "salesman" ? req.user.id : null;
 
@@ -68,7 +88,7 @@ exports.create = async (req, res) => {
         retailer_id || null,
         req.user.distributor_id,
         salesman_id,
-        "pending", // 🔥 SAFE VALUE
+        "pending",
       ]
     );
 
@@ -92,7 +112,6 @@ exports.updateStatus = async (req, res) => {
   try {
     const { id, status } = req.body;
 
-    // ✅ VALIDATION
     if (!id || !status) {
       return res.status(400).json({
         success: false,
@@ -100,7 +119,6 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    // ✅ ALLOWED STATUS
     const allowed = ["pending", "approved", "rejected"];
     if (!allowed.includes(status)) {
       return res.status(400).json({
@@ -109,7 +127,6 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    // ❌ SALESMAN BLOCK
     if (req.user.role === "salesman") {
       return res.status(403).json({
         success: false,

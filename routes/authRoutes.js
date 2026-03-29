@@ -1,29 +1,20 @@
-const express = require("express");
-const router = express.Router();
+const router = require("express").Router();
+const ctrl = require("../controllers/authController");
+const { verifyToken } = require("../middleware/authMiddleware");
 
-const auth = require("../controllers/authController");
-const { verifyToken, checkRole } = require("../middleware/authMiddleware");
+// ===== AUTH =====
 
-// =======================
-// PUBLIC ROUTES
-// =======================
-
-// REGISTER (ADMIN + DISTRIBUTOR)
-router.post("/register", auth.register);
+// REGISTER (Distributor + Admin)
+router.post("/register", ctrl.register);
 
 // LOGIN
-router.post("/login", auth.login);
+router.post("/login", ctrl.login);
 
-// =======================
-// PRIVATE ROUTES
-// =======================
+
+// ===== USER (ADMIN CONTROL) =====
 
 // CREATE USER (ONLY ADMIN)
-router.post(
-  "/create-user",
-  verifyToken,
-  checkRole("admin"),
-  auth.createUser
-);
+router.post("/create-user", verifyToken, ctrl.createUser);
+
 
 module.exports = router;

@@ -2,7 +2,7 @@ const pool = require("../config/db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-// REGISTER (ADMIN + DISTRIBUTOR)
+// ===== REGISTER =====
 exports.register = async (req, res) => {
   const client = await pool.connect();
   try {
@@ -70,6 +70,9 @@ exports.register = async (req, res) => {
 
     const user = userRes.rows[0];
 
+    // 🔥 admin = all brands
+    user.brand_ids = [];
+
     const token = jwt.sign(user, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
@@ -80,6 +83,7 @@ exports.register = async (req, res) => {
       token,
       user,
     });
+
   } catch (err) {
     await client.query("ROLLBACK");
     res.status(500).json({
@@ -91,7 +95,8 @@ exports.register = async (req, res) => {
   }
 };
 
-// LOGIN
+
+// ===== LOGIN =====
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -128,6 +133,20 @@ exports.login = async (req, res) => {
 
     delete user.password;
 
+    // 🔥 GET BRAND IDS (for salesman)
+    let brand_ids = [];
+
+    if (user.role === "salesman") {
+      const brands = await pool.query(
+        `SELECT brand_id FROM user_brands WHERE user_id=$1`,
+        [user.id]
+      );
+
+      brand_ids = brands.rows.map((b) => b.brand_id);
+    }
+
+    user.brand_ids = brand_ids;
+
     const token = jwt.sign(user, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
@@ -137,7 +156,9 @@ exports.login = async (req, res) => {
       token,
       user,
     });
+
   } catch (err) {
+    console.log("LOGIN ERROR:", err);
     res.status(500).json({
       success: false,
       message: err.message,
@@ -145,9 +166,18 @@ exports.login = async (req, res) => {
   }
 };
 
-// CREATE USER (ADMIN ONLY)
+
+// ===== CREATE USER (ADMIN ONLY) =====
 exports.createUser = async (req, res) => {
   try {
+    // 🔥 ONLY ADMIN
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can create users",
+      });
+    }
+
     const { name, email, password, role, mobile } = req.body;
 
     if (!name || !email || !password || !role) {
@@ -196,6 +226,7 @@ exports.createUser = async (req, res) => {
       success: true,
       message: "User created successfully",
     });
+
   } catch (err) {
     res.status(500).json({
       success: false,

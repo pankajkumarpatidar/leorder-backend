@@ -55,13 +55,13 @@ exports.list = async (req, res) => {
     let result;
 
     if (req.user.role === "salesman") {
-      // 🔥 only his brands
+      // 🔥 ONLY HIS BRANDS (FIXED)
       result = await pool.query(
-        `SELECT p.* FROM products p
-         JOIN brands b ON p.brand_id = b.id
-         WHERE b.distributor_id=$1
-         ORDER BY p.id DESC`,
-        [req.user.distributor_id]
+        `SELECT * FROM products
+         WHERE distributor_id=$1
+         AND brand_id = ANY($2)
+         ORDER BY id DESC`,
+        [req.user.distributor_id, req.user.brand_ids]
       );
     } else {
       // ✅ admin / staff

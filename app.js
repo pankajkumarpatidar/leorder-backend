@@ -4,17 +4,14 @@ require('dotenv').config();
 
 const app = express();
 
-
 // 🔥 MIDDLEWARES
 app.use(cors());
 app.use(express.json());
-
 
 // 🔥 HEALTH CHECK
 app.get('/', (req, res) => {
   res.send('Leorder API Running 🚀');
 });
-
 
 // 🔥 ROUTES
 app.use('/api/auth', require('./routes/authRoutes'));
@@ -26,15 +23,16 @@ app.use('/api/salesman', require('./routes/salesmanRoutes'));
 app.use('/api/order', require('./routes/orderRoutes'));
 app.use('/api/product', require('./routes/productRoutes'));
 
+// 🔥 NEW (brand assign system)
+app.use('/api/user-brands', require('./routes/userBrandRoutes'));
 
-// 🔥 404 HANDLER (IMPORTANT)
+// 🔥 404 HANDLER
 app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: "Route not found"
   });
 });
-
 
 // 🔥 GLOBAL ERROR HANDLER
 app.use((err, req, res, next) => {
@@ -45,6 +43,5 @@ app.use((err, req, res, next) => {
     message: err.message || "Internal server error"
   });
 });
-
 
 module.exports = app;
