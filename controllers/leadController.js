@@ -29,15 +29,20 @@ exports.create = async (req, res) => {
       });
     }
 
+    // ✅ salesman id auto assign
+    const salesman_id =
+      req.user.role === "salesman" ? req.user.id : null;
+
     await pool.query(
       `INSERT INTO leads 
-      (mobile, brand_id, retailer_id, distributor_id, status)
-      VALUES ($1,$2,$3,$4,'pending')`,
+      (mobile, brand_id, retailer_id, distributor_id, salesman_id, status)
+      VALUES ($1,$2,$3,$4,$5,'pending')`,
       [
         mobile,
         brand_id,
         retailer_id || null,
-        req.user.distributor_id, // 🔥 IMPORTANT
+        req.user.distributor_id,
+        salesman_id,
       ]
     );
 
@@ -54,6 +59,7 @@ exports.updateStatus = async (req, res) => {
   try {
     const { id, status } = req.body;
 
+    // ✅ VALIDATION
     if (!id || !status) {
       return res.status(400).json({
         success: false,
@@ -61,12 +67,37 @@ exports.updateStatus = async (req, res) => {
       });
     }
 
-    await pool.query(
+    // ✅ ALLOWED STATUS ONLY
+    const allowed = ["pending", "approved", "rejected"];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    // ✅ EXTRA SECURITY (double check)
+    if (req.user.role === "salesman") {
+      return res.status(403).json({
+        success: false,
+        message: "Not allowed",
+      });
+    }
+
+    const result = await pool.query(
       `UPDATE leads 
        SET status=$1 
        WHERE id=$2 AND distributor_id=$3`,
       [status, id, req.user.distributor_id]
     );
+
+    // ✅ if id not found
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
+    }
 
     res.json({ success: true, message: "Status updated" });
 
