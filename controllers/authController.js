@@ -70,12 +70,17 @@ exports.register = async (req, res) => {
 
     const user = userRes.rows[0];
 
-    // 🔥 admin = all brands
-    user.brand_ids = [];
-
-    const token = jwt.sign(user, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    // 🔥 IMPORTANT FIX
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        distributor_id: user.distributor_id,
+        brand_ids: [],
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
     res.json({
       success: true,
@@ -133,7 +138,7 @@ exports.login = async (req, res) => {
 
     delete user.password;
 
-    // 🔥 GET BRAND IDS (for salesman)
+    // 🔥 BRAND IDS
     let brand_ids = [];
 
     if (user.role === "salesman") {
@@ -147,9 +152,17 @@ exports.login = async (req, res) => {
 
     user.brand_ids = brand_ids;
 
-    const token = jwt.sign(user, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    // 🔥 FINAL TOKEN FIX
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        distributor_id: user.distributor_id,
+        brand_ids,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
     res.json({
       success: true,
@@ -170,7 +183,6 @@ exports.login = async (req, res) => {
 // ===== CREATE USER (ADMIN ONLY) =====
 exports.createUser = async (req, res) => {
   try {
-    // 🔥 ONLY ADMIN
     if (req.user.role !== "admin") {
       return res.status(403).json({
         success: false,

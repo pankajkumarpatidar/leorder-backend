@@ -1,17 +1,21 @@
-const router = require("express").Router();
-const ctrl = require("../controllers/retailerController");
+const express = require("express");
+const router = express.Router();
+
+const retailerController = require("../controllers/retailerController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// LIST
-router.get("/", verifyToken, ctrl.list);
+// ===== RETAILER ROUTES =====
 
 // CREATE
-router.post("/", verifyToken, ctrl.create);
+router.post("/retailers", verifyToken, retailerController.create);
+
+// LIST
+router.get("/retailers", verifyToken, retailerController.list);
 
 // UPDATE
-router.put("/:id", verifyToken, ctrl.update);
+router.put("/retailers/:id", verifyToken, retailerController.update);
 
 // DELETE
-router.delete("/:id", verifyToken, ctrl.remove);
+router.delete("/retailers/:id", verifyToken, retailerController.remove);
 
 module.exports = router;

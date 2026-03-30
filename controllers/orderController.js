@@ -66,24 +66,28 @@ exports.create = async (req, res) => {
         [i.product_id, req.user.distributor_id]
       );
 
+      if (!p.rows.length) continue;
+
       const product = p.rows[0];
 
-      const price = product.dp_per_pcs || 0;
-      const conversion = product.pcs_per_box || 1;
+      const price = Number(product.dp_per_pcs || 0);
+      const conversion = Number(product.pcs_per_box || 1);
 
-      const final_qty = i.qty * conversion;
+      const final_qty = Number(i.qty) * conversion;
 
       // 💰 CALCULATION
       let base = final_qty * price;
 
       let afterTrade =
-        base - (base * (i.trade_discount || 0)) / 100;
+        base - (base * Number(i.trade_discount || 0)) / 100;
 
       let afterSpecial =
-        afterTrade - (afterTrade * (i.special_discount || 0)) / 100;
+        afterTrade -
+        (afterTrade * Number(i.special_discount || 0)) / 100;
 
       let afterCash =
-        afterSpecial - (afterSpecial * (i.cash_discount || 0)) / 100;
+        afterSpecial -
+        (afterSpecial * Number(i.cash_discount || 0)) / 100;
 
       const net_rate =
         final_qty > 0 ? afterCash / final_qty : 0;
@@ -112,6 +116,9 @@ exports.create = async (req, res) => {
       );
     }
 
+    // 🔥 ROUND TOTAL
+    total = Math.round(total);
+
     await client.query(
       `UPDATE orders SET total=$1 WHERE id=$2`,
       [total, order.rows[0].id]
@@ -127,6 +134,7 @@ exports.create = async (req, res) => {
 
   } catch (e) {
     await client.query("ROLLBACK");
+    console.log("ORDER CREATE ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,
@@ -140,52 +148,31 @@ exports.create = async (req, res) => {
 // ================= LIST ORDERS =================
 exports.list = async (req, res) => {
   try {
-    const { payment_type, status, from_date, to_date } = req.query;
-
-    let query = `
-      SELECT 
+    const result = await pool.query(
+      `SELECT 
         o.*,
-        r.business_name AS retailer_name
+        COALESCE(r.business_name, 'Walk-in') AS retailer_name
       FROM orders o
       LEFT JOIN retailers r ON r.id = o.retailer_id
       WHERE o.distributor_id = $1
-    `;
-
-    const values = [req.user.distributor_id];
-    let i = 2;
-
-    if (payment_type) {
-      query += ` AND o.payment_type = $${i++}`;
-      values.push(payment_type);
-    }
-
-    if (status) {
-      query += ` AND o.status = $${i++}`;
-      values.push(status);
-    }
-
-    if (from_date && to_date) {
-      query += ` AND o.created_at BETWEEN $${i++} AND $${i++}`;
-      values.push(from_date, to_date);
-    }
-
-    query += ` ORDER BY o.id DESC`;
-
-    const result = await pool.query(query, values);
+      ORDER BY o.id DESC`,
+      [req.user.distributor_id]
+    );
 
     const today = new Date();
 
-    const data = result.rows.map((o) => {
-      let is_overdue = false;
+    const data = result.rows.map((o) => ({
+      ...o,
+      is_overdue:
+        o.payment_type === "CREDIT" &&
+        o.due_date &&
+        new Date(o.due_date) < today,
+    }));
 
-      if (o.payment_type === "CREDIT" && o.due_date) {
-        is_overdue = new Date(o.due_date) < today;
-      }
-
-      return { ...o, is_overdue };
+    res.json({
+      success: true,
+      data,
     });
-
-    res.json({ success: true, data });
 
   } catch (e) {
     console.log("ORDER LIST ERROR:", e);
@@ -203,7 +190,9 @@ exports.details = async (req, res) => {
     const orderId = req.params.id;
 
     const order = await pool.query(
-      `SELECT o.*, r.business_name AS retailer_name
+      `SELECT 
+        o.*,
+        COALESCE(r.business_name, 'Walk-in') AS retailer_name
        FROM orders o
        LEFT JOIN retailers r ON r.id = o.retailer_id
        WHERE o.id=$1 AND o.distributor_id=$2`,

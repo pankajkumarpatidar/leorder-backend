@@ -63,11 +63,21 @@ exports.create = async (req, res) => {
   }
 };
 
+
 // ===== LIST =====
 exports.list = async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT * FROM retailers 
+      `SELECT 
+         id,
+         business_name,
+         email,
+         mobile,
+         gst_no,
+         address,
+         pincode,
+         created_at
+       FROM retailers 
        WHERE distributor_id=$1 
        ORDER BY id DESC`,
       [req.user.distributor_id]
@@ -75,7 +85,7 @@ exports.list = async (req, res) => {
 
     res.json({
       success: true,
-      data: r.rows,
+      data: r.rows || [],
     });
 
   } catch (e) {
@@ -86,6 +96,7 @@ exports.list = async (req, res) => {
     });
   }
 };
+
 
 // ===== UPDATE =====
 exports.update = async (req, res) => {
@@ -133,6 +144,7 @@ exports.update = async (req, res) => {
     });
   }
 };
+
 
 // ===== DELETE =====
 exports.remove = async (req, res) => {

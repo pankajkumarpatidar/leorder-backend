@@ -1,17 +1,18 @@
 const express = require("express");
 const router = express.Router();
-const orderController = require("../controllers/orderController");
 
-// ✅ FIXED IMPORT
+const orderController = require("../controllers/orderController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// ===== CREATE =====
+// ===== ORDER ROUTES =====
+
+// CREATE ORDER
 router.post("/orders", verifyToken, orderController.create);
 
-// ===== LIST =====
+// LIST ORDERS (with filters support)
 router.get("/orders", verifyToken, orderController.list);
 
-// ===== DETAILS =====
+// ORDER DETAILS
 router.get("/orders/:id", verifyToken, orderController.details);
 
 module.exports = router;
