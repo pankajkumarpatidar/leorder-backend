@@ -145,7 +145,7 @@ exports.list = async (req, res) => {
     let query = `
       SELECT 
         o.*,
-        r.business_name AS retailer_name
+        r.name AS retailer_name
       FROM orders o
       LEFT JOIN retailers r ON r.id = o.retailer_id
       WHERE o.distributor_id = $1
@@ -203,7 +203,7 @@ exports.details = async (req, res) => {
     const orderId = req.params.id;
 
     const order = await pool.query(
-      `SELECT o.*, r.business_name AS retailer_name
+      `SELECT o.*, r.name AS retailer_name
        FROM orders o
        LEFT JOIN retailers r ON r.id = o.retailer_id
        WHERE o.id=$1 AND o.distributor_id=$2`,
