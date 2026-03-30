@@ -3,7 +3,7 @@ const pool = require("../config/db");
 // ===== CREATE =====
 exports.create = async (req, res) => {
   try {
-    const {
+    let {
       name,
       brand_id,
       category_id,
@@ -13,12 +13,24 @@ exports.create = async (req, res) => {
       mrp_per_pcs,
     } = req.body;
 
+    // 🔥 VALIDATION
     if (!name || !brand_id) {
       return res.status(400).json({
         success: false,
         message: "Name & Brand required",
       });
     }
+
+    if (!dp_per_pcs) {
+      return res.status(400).json({
+        success: false,
+        message: "DP price required",
+      });
+    }
+
+    // 🔥 DEFAULTS
+    unit = unit || "PCS";
+    pcs_per_box = pcs_per_box || 1;
 
     const r = await pool.query(
       `INSERT INTO products
@@ -29,10 +41,10 @@ exports.create = async (req, res) => {
         name,
         brand_id,
         category_id || null,
-        unit || null,
-        pcs_per_box || null,
-        dp_per_pcs || null,
-        mrp_per_pcs || null,
+        unit,
+        pcs_per_box,
+        dp_per_pcs,
+        mrp_per_pcs || 0,
         req.user.distributor_id,
       ]
     );
@@ -55,7 +67,6 @@ exports.list = async (req, res) => {
     let result;
 
     if (req.user.role === "salesman") {
-      // 🔥 ONLY HIS BRANDS (FIXED)
       result = await pool.query(
         `SELECT * FROM products
          WHERE distributor_id=$1
@@ -64,7 +75,6 @@ exports.list = async (req, res) => {
         [req.user.distributor_id, req.user.brand_ids]
       );
     } else {
-      // ✅ admin / staff
       result = await pool.query(
         `SELECT * FROM products
          WHERE distributor_id=$1
@@ -91,7 +101,7 @@ exports.list = async (req, res) => {
 // ===== UPDATE =====
 exports.update = async (req, res) => {
   try {
-    const {
+    let {
       name,
       brand_id,
       category_id,
@@ -100,6 +110,10 @@ exports.update = async (req, res) => {
       dp_per_pcs,
       mrp_per_pcs,
     } = req.body;
+
+    // 🔥 DEFAULT SAFE UPDATE
+    unit = unit || "PCS";
+    pcs_per_box = pcs_per_box || 1;
 
     await pool.query(
       `UPDATE products SET
@@ -115,10 +129,10 @@ exports.update = async (req, res) => {
         name,
         brand_id,
         category_id || null,
-        unit || null,
-        pcs_per_box || null,
-        dp_per_pcs || null,
-        mrp_per_pcs || null,
+        unit,
+        pcs_per_box,
+        dp_per_pcs || 0,
+        mrp_per_pcs || 0,
         req.params.id,
         req.user.distributor_id,
       ]
@@ -126,7 +140,7 @@ exports.update = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Updated",
+      message: "Product Updated",
     });
 
   } catch (e) {
@@ -150,7 +164,7 @@ exports.remove = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Deleted",
+      message: "Product Deleted",
     });
 
   } catch (e) {

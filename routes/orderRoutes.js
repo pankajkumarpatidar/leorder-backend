@@ -1,5 +1,8 @@
-const router = require("express").Router();
-const ctrl = require("../controllers/orderController");
-const {verifyToken}=require("../middleware/authMiddleware");
-router.post("/",verifyToken,ctrl.create);
+const express = require("express");
+const router = express.Router();
+const orderController = require("../controllers/orderController");
+const auth = require("../middleware/auth");
+
+router.post("/orders", auth, orderController.create);
+
 module.exports = router;
