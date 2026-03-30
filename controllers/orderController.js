@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 
+// ================= CREATE ORDER =================
 exports.create = async (req, res) => {
   const client = await pool.connect();
 
@@ -13,7 +14,7 @@ exports.create = async (req, res) => {
 
     await client.query("BEGIN");
 
-    // 🔥 CHECK LEAD APPROVED
+    // 🔥 LEAD CHECK
     if (retailer_id) {
       const leadCheck = await client.query(
         `SELECT id FROM leads
@@ -33,7 +34,7 @@ exports.create = async (req, res) => {
       }
     }
 
-    // 📅 DUE DATE CALC
+    // 📅 DUE DATE
     let due_date = null;
     if (payment_type === "CREDIT") {
       const d = new Date();
@@ -111,7 +112,6 @@ exports.create = async (req, res) => {
       );
     }
 
-    // 🔥 UPDATE TOTAL
     await client.query(
       `UPDATE orders SET total=$1 WHERE id=$2`,
       [total, order.rows[0].id]
@@ -133,5 +133,113 @@ exports.create = async (req, res) => {
     });
   } finally {
     client.release();
+  }
+};
+
+
+// ================= LIST ORDERS =================
+exports.list = async (req, res) => {
+  try {
+    const { payment_type, status, from_date, to_date } = req.query;
+
+    let query = `
+      SELECT 
+        o.*,
+        r.name AS retailer_name
+      FROM orders o
+      LEFT JOIN retailers r ON r.id = o.retailer_id
+      WHERE o.distributor_id = $1
+    `;
+
+    const values = [req.user.distributor_id];
+    let i = 2;
+
+    if (payment_type) {
+      query += ` AND o.payment_type = $${i++}`;
+      values.push(payment_type);
+    }
+
+    if (status) {
+      query += ` AND o.status = $${i++}`;
+      values.push(status);
+    }
+
+    if (from_date && to_date) {
+      query += ` AND o.created_at BETWEEN $${i++} AND $${i++}`;
+      values.push(from_date, to_date);
+    }
+
+    query += ` ORDER BY o.id DESC`;
+
+    const result = await pool.query(query, values);
+
+    const today = new Date();
+
+    const data = result.rows.map((o) => {
+      let is_overdue = false;
+
+      if (o.payment_type === "CREDIT" && o.due_date) {
+        is_overdue = new Date(o.due_date) < today;
+      }
+
+      return { ...o, is_overdue };
+    });
+
+    res.json({ success: true, data });
+
+  } catch (e) {
+    console.log("ORDER LIST ERROR:", e);
+    res.status(500).json({
+      success: false,
+      message: e.message,
+    });
+  }
+};
+
+
+// ================= ORDER DETAILS =================
+exports.details = async (req, res) => {
+  try {
+    const orderId = req.params.id;
+
+    const order = await pool.query(
+      `SELECT o.*, r.name AS retailer_name
+       FROM orders o
+       LEFT JOIN retailers r ON r.id = o.retailer_id
+       WHERE o.id=$1 AND o.distributor_id=$2`,
+      [orderId, req.user.distributor_id]
+    );
+
+    if (!order.rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    const items = await pool.query(
+      `SELECT 
+         oi.*,
+         p.name AS product_name
+       FROM order_items oi
+       LEFT JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id=$1`,
+      [orderId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        order: order.rows[0],
+        items: items.rows,
+      },
+    });
+
+  } catch (e) {
+    console.log("ORDER DETAILS ERROR:", e);
+    res.status(500).json({
+      success: false,
+      message: e.message,
+    });
   }
 };
