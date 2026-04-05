@@ -1,8 +1,13 @@
+// ===== FILE: retailerController.js =====
+
 const pool = require("../config/db");
+
 
 // ================= LIST =================
 exports.list = async (req, res) => {
   try {
+    const { search } = req.query;
+
     let query = `
       SELECT *
       FROM retailers
@@ -12,10 +17,14 @@ exports.list = async (req, res) => {
     const values = [req.user.distributor_id];
     let i = 2;
 
-    // 🔒 SALESMAN → only own retailers
-    if (req.user.role === "salesman") {
-      query += ` AND created_by=$${i++}`;
-      values.push(req.user.id);
+    // 🔍 SEARCH
+    if (search) {
+      query += ` AND (
+        LOWER(business_name) LIKE LOWER($${i})
+        OR mobile LIKE $${i}
+      )`;
+      values.push(`%${search}%`);
+      i++;
     }
 
     query += ` ORDER BY id DESC`;
@@ -37,7 +46,7 @@ exports.list = async (req, res) => {
 };
 
 
-// ================= CREATE (LIMITED USE) =================
+// ================= CREATE =================
 // ⚠️ Prefer via Lead approval
 exports.create = async (req, res) => {
   try {
@@ -117,6 +126,8 @@ exports.create = async (req, res) => {
 // ================= UPDATE =================
 exports.update = async (req, res) => {
   try {
+    const { id } = req.params;
+
     const {
       business_name,
       mobile,
@@ -127,35 +138,58 @@ exports.update = async (req, res) => {
       pincode,
     } = req.body;
 
-    // 🔥 ORDER APPROVED → LOCK (optional future)
-    // अभी skip
+    // 🔒 SALESMAN → only own
+    if (req.user.role === "salesman") {
+      const r = await pool.query(
+        `SELECT created_by FROM retailers WHERE id=$1`,
+        [id]
+      );
+
+      if (r.rows[0]?.created_by !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: "Not allowed",
+        });
+      }
+    }
+
+    // 🔥 GST VALIDATION
+    if (gst_status === "REGISTERED" && !gst_no) {
+      return res.status(400).json({
+        success: false,
+        message: "GST No required",
+      });
+    }
 
     await pool.query(
       `UPDATE retailers SET
-        business_name=$1,
-        mobile=$2,
-        email=$3,
-        gst_status=$4,
-        gst_no=$5,
-        address=$6,
-        pincode=$7
+        business_name = COALESCE($1,business_name),
+        mobile = COALESCE($2,mobile),
+        email = COALESCE($3,email),
+        gst_status = COALESCE($4,gst_status),
+        gst_no = CASE 
+          WHEN $4='REGISTERED' THEN $5 
+          ELSE NULL 
+        END,
+        address = COALESCE($6,address),
+        pincode = COALESCE($7,pincode)
        WHERE id=$8 AND distributor_id=$9`,
       [
         business_name,
         mobile,
-        email || null,
+        email,
         gst_status,
-        gst_status === "REGISTERED" ? gst_no : null,
-        address || null,
-        pincode || null,
-        req.params.id,
+        gst_no,
+        address,
+        pincode,
+        id,
         req.user.distributor_id,
       ]
     );
 
     res.json({
       success: true,
-      message: "Updated",
+      message: "Retailer updated",
     });
 
   } catch (e) {
@@ -171,11 +205,13 @@ exports.update = async (req, res) => {
 // ================= DELETE =================
 exports.remove = async (req, res) => {
   try {
-    // 🔒 SALESMAN restriction
+    const { id } = req.params;
+
+    // 🔒 SALESMAN → only own
     if (req.user.role === "salesman") {
       const r = await pool.query(
         `SELECT created_by FROM retailers WHERE id=$1`,
-        [req.params.id]
+        [id]
       );
 
       if (r.rows[0]?.created_by !== req.user.id) {
@@ -189,16 +225,50 @@ exports.remove = async (req, res) => {
     await pool.query(
       `DELETE FROM retailers 
        WHERE id=$1 AND distributor_id=$2`,
-      [req.params.id, req.user.distributor_id]
+      [id, req.user.distributor_id]
     );
 
     res.json({
       success: true,
-      message: "Deleted",
+      message: "Retailer deleted",
     });
 
   } catch (e) {
     console.log("DELETE RETAILER ERROR:", e);
+    res.status(500).json({
+      success: false,
+      message: e.message,
+    });
+  }
+};
+
+
+// ================= DETAILS =================
+exports.details = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const r = await pool.query(
+      `SELECT *
+       FROM retailers
+       WHERE id=$1 AND distributor_id=$2`,
+      [id, req.user.distributor_id]
+    );
+
+    if (!r.rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Retailer not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: r.rows[0],
+    });
+
+  } catch (e) {
+    console.log("DETAIL RETAILER ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,

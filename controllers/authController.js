@@ -1,8 +1,10 @@
+// ===== FILE: authController.js =====
+
 const pool = require("../config/db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-// ================= HELPER =================
+// ================= TOKEN HELPER =================
 const generateToken = (user) => {
   return jwt.sign(
     {
@@ -33,7 +35,7 @@ exports.register = async (req, res) => {
       address,
     } = req.body;
 
-    // 🔥 VALIDATION
+    // 🔒 VALIDATION
     if (!business_name || !person_name || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -41,7 +43,7 @@ exports.register = async (req, res) => {
       });
     }
 
-    // 🔥 EMAIL CHECK
+    // 🔒 EMAIL CHECK
     const existing = await client.query(
       "SELECT id FROM users WHERE email=$1",
       [email]
@@ -89,6 +91,9 @@ exports.register = async (req, res) => {
 
     const user = userRes.rows[0];
 
+    delete user.password;
+
+    // 🔥 DEFAULT EMPTY ACCESS
     user.brand_ids = [];
     user.category_ids = [];
 
@@ -150,22 +155,23 @@ exports.login = async (req, res) => {
 
     delete user.password;
 
-    // ================= BRAND ACCESS =================
-    const brandRes = await pool.query(
-      `SELECT brand_id FROM user_brands WHERE user_id=$1`,
-      [user.id]
-    );
+    // ================= 🔥 ROLE BASED BRAND/CATEGORY =================
+    let brand_ids = [];
+    let category_ids = [];
 
-    const brand_ids = brandRes.rows.map((b) => b.brand_id);
+    if (user.role === "salesman") {
+      const r = await pool.query(
+        `SELECT brand_id, category_id 
+         FROM user_brands 
+         WHERE user_id=$1`,
+        [user.id]
+      );
 
-    // ================= CATEGORY ACCESS =================
-    const catRes = await pool.query(
-      `SELECT category_id FROM user_brand_categories WHERE user_id=$1`,
-      [user.id]
-    );
+      brand_ids = r.rows.map((x) => x.brand_id);
+      category_ids = r.rows.map((x) => x.category_id);
+    }
 
-    const category_ids = catRes.rows.map((c) => c.category_id);
-
+    // ================= FINAL USER =================
     user.brand_ids = brand_ids;
     user.category_ids = category_ids;
 

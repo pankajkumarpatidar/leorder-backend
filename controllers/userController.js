@@ -1,3 +1,5 @@
+// ===== FILE: userController.js =====
+
 const pool = require("../config/db");
 const bcrypt = require("bcrypt");
 
@@ -6,7 +8,6 @@ exports.create = async (req, res) => {
   try {
     const { name, email, password, role, mobile } = req.body;
 
-    // 🔥 VALIDATION
     if (!name || !email || !password || !role) {
       return res.status(400).json({
         success: false,
@@ -47,7 +48,7 @@ exports.create = async (req, res) => {
       `INSERT INTO users
       (name,email,password,role,distributor_id,created_by,mobile)
       VALUES ($1,$2,$3,$4,$5,$6,$7)
-      RETURNING id,name,email,role`,
+      RETURNING id,name,email,role,mobile`,
       [
         name,
         email,
@@ -83,7 +84,7 @@ exports.list = async (req, res) => {
 
     const values = [req.user.distributor_id];
 
-    // 🔥 staff only see salesman
+    // 🔥 STAFF → only salesman
     if (req.user.role === "staff") {
       query += ` AND role='salesman'`;
     }
@@ -105,15 +106,24 @@ exports.list = async (req, res) => {
   }
 };
 
-// ================= ASSIGN BRAND =================
-exports.assignBrands = async (req, res) => {
+// ================= ASSIGN BRAND + CATEGORY (COMBINED) =================
+exports.assignAccess = async (req, res) => {
   try {
-    const { user_id, brand_ids } = req.body;
+    const { user_id, access } = req.body;
+    // access = [{ brand_id, category_id }]
 
-    if (!user_id || !brand_ids?.length) {
+    if (!user_id || !access?.length) {
       return res.status(400).json({
         success: false,
-        message: "User & brands required",
+        message: "User & access required",
+      });
+    }
+
+    // 🔒 ONLY ADMIN / STAFF
+    if (req.user.role === "salesman") {
+      return res.status(403).json({
+        success: false,
+        message: "Permission denied",
       });
     }
 
@@ -124,57 +134,16 @@ exports.assignBrands = async (req, res) => {
     );
 
     // 🔥 INSERT NEW
-    for (const brand_id of brand_ids) {
+    for (const a of access) {
       await pool.query(
         `INSERT INTO user_brands
-        (user_id,brand_id,distributor_id)
+        (user_id,brand_id,category_id)
         VALUES ($1,$2,$3)`,
-        [user_id, brand_id, req.user.distributor_id]
+        [user_id, a.brand_id, a.category_id || null]
       );
     }
 
-    res.json({
-      success: true,
-      message: "Brands assigned",
-    });
-
-  } catch (e) {
-    res.status(500).json({
-      success: false,
-      message: e.message,
-    });
-  }
-};
-
-// ================= ASSIGN CATEGORY =================
-exports.assignCategories = async (req, res) => {
-  try {
-    const { user_id, categories } = req.body;
-
-    if (!user_id) {
-      return res.status(400).json({
-        success: false,
-        message: "User required",
-      });
-    }
-
-    // 🔥 CLEAR OLD
-    await pool.query(
-      `DELETE FROM user_brand_categories WHERE user_id=$1`,
-      [user_id]
-    );
-
-    // 🔥 INSERT NEW
-    for (const c of categories) {
-      await pool.query(
-        `INSERT INTO user_brand_categories
-        (user_id,brand_id,category_id,distributor_id)
-        VALUES ($1,$2,$3,$4)`,
-        [user_id, c.brand_id, c.category_id, req.user.distributor_id]
-      );
-    }
-
-    // 🔥 ENABLE RESTRICTION
+    // 🔥 CATEGORY RESTRICTION FLAG
     await pool.query(
       `UPDATE users SET is_category_restricted=true WHERE id=$1`,
       [user_id]
@@ -182,7 +151,7 @@ exports.assignCategories = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Categories assigned",
+      message: "Access assigned",
     });
 
   } catch (e) {
@@ -193,13 +162,13 @@ exports.assignCategories = async (req, res) => {
   }
 };
 
-// ================= REMOVE CATEGORY RESTRICTION =================
-exports.clearCategoryRestriction = async (req, res) => {
+// ================= CLEAR ACCESS =================
+exports.clearAccess = async (req, res) => {
   try {
     const { user_id } = req.body;
 
     await pool.query(
-      `DELETE FROM user_brand_categories WHERE user_id=$1`,
+      `DELETE FROM user_brands WHERE user_id=$1`,
       [user_id]
     );
 
@@ -210,7 +179,7 @@ exports.clearCategoryRestriction = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Full brand access restored",
+      message: "Full access restored",
     });
 
   } catch (e) {
@@ -250,7 +219,7 @@ exports.details = async (req, res) => {
     const { id } = req.params;
 
     const user = await pool.query(
-      `SELECT id,name,email,role,mobile,is_active
+      `SELECT id,name,email,role,mobile,is_active,is_category_restricted
        FROM users
        WHERE id=$1 AND distributor_id=$2`,
       [id, req.user.distributor_id]
@@ -263,23 +232,26 @@ exports.details = async (req, res) => {
       });
     }
 
-    const brands = await pool.query(
-      `SELECT brand_id FROM user_brands WHERE user_id=$1`,
-      [id]
-    );
+    // 🔥 ACCESS (ONLY SALESMAN)
+    let access = [];
 
-    const categories = await pool.query(
-      `SELECT brand_id,category_id 
-       FROM user_brand_categories WHERE user_id=$1`,
-      [id]
-    );
+    if (user.rows[0].role === "salesman") {
+      const r = await pool.query(
+        `SELECT ub.*, b.name AS brand_name
+         FROM user_brands ub
+         LEFT JOIN brands b ON b.id = ub.brand_id
+         WHERE ub.user_id=$1`,
+        [id]
+      );
+
+      access = r.rows;
+    }
 
     res.json({
       success: true,
       data: {
         user: user.rows[0],
-        brands: brands.rows,
-        categories: categories.rows,
+        access,
       },
     });
 

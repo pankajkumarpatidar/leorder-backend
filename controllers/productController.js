@@ -1,3 +1,5 @@
+// ===== FILE: productController.js =====
+
 const pool = require("../config/db");
 
 // ================= CREATE PRODUCT =================
@@ -21,7 +23,6 @@ exports.create = async (req, res) => {
       conversion,
     } = req.body;
 
-    // 🔥 VALIDATION
     if (!name || !brand_id || !category_id) {
       return res.status(400).json({
         success: false,
@@ -32,7 +33,7 @@ exports.create = async (req, res) => {
     if (!unit_small || !dp_small) {
       return res.status(400).json({
         success: false,
-        message: "Unit & price required",
+        message: "Unit & DP required",
       });
     }
 
@@ -45,7 +46,7 @@ exports.create = async (req, res) => {
     if (exist.rows.length) {
       return res.status(409).json({
         success: false,
-        message: "Product exists",
+        message: "Product already exists",
       });
     }
 
@@ -76,6 +77,7 @@ exports.create = async (req, res) => {
     });
 
   } catch (e) {
+    console.log("CREATE PRODUCT ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,
@@ -89,7 +91,10 @@ exports.list = async (req, res) => {
     const { search, brand_id, category_id } = req.query;
 
     let query = `
-      SELECT p.*, b.name AS brand_name, c.name AS category_name
+      SELECT 
+        p.*,
+        b.name AS brand_name,
+        c.name AS category_name
       FROM products p
       LEFT JOIN brands b ON b.id = p.brand_id
       LEFT JOIN categories c ON c.id = p.category_id
@@ -99,17 +104,18 @@ exports.list = async (req, res) => {
     const values = [req.user.distributor_id];
     let i = 2;
 
-    // 🔒 SALESMAN FILTER
+    // 🔒 SALESMAN RESTRICTION
     if (req.user.role === "salesman") {
 
-      // brand filter
       if (req.user.brand_ids?.length) {
         query += ` AND p.brand_id = ANY($${i++})`;
         values.push(req.user.brand_ids);
       }
 
-      // category restriction
-      if (req.user.is_category_restricted && req.user.category_ids?.length) {
+      if (
+        req.user.is_category_restricted &&
+        req.user.category_ids?.length
+      ) {
         query += ` AND p.category_id = ANY($${i++})`;
         values.push(req.user.category_ids);
       }
@@ -121,7 +127,7 @@ exports.list = async (req, res) => {
       values.push(`%${search}%`);
     }
 
-    // 🔍 FILTERS
+    // 🔍 FILTER
     if (brand_id) {
       query += ` AND p.brand_id = $${i++}`;
       values.push(brand_id);
@@ -153,6 +159,13 @@ exports.list = async (req, res) => {
 // ================= UPDATE PRODUCT =================
 exports.update = async (req, res) => {
   try {
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Permission denied",
+      });
+    }
+
     const { id } = req.params;
 
     const {
@@ -168,14 +181,14 @@ exports.update = async (req, res) => {
 
     await pool.query(
       `UPDATE products SET
-        name=$1,
-        brand_id=$2,
-        category_id=$3,
-        unit_small=$4,
-        mrp_small=$5,
-        dp_small=$6,
-        unit_big=$7,
-        conversion=$8
+        name = COALESCE($1,name),
+        brand_id = COALESCE($2,brand_id),
+        category_id = COALESCE($3,category_id),
+        unit_small = COALESCE($4,unit_small),
+        mrp_small = COALESCE($5,mrp_small),
+        dp_small = COALESCE($6,dp_small),
+        unit_big = COALESCE($7,unit_big),
+        conversion = COALESCE($8,conversion)
        WHERE id=$9 AND distributor_id=$10`,
       [
         name,
@@ -197,6 +210,7 @@ exports.update = async (req, res) => {
     });
 
   } catch (e) {
+    console.log("UPDATE PRODUCT ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,
@@ -207,6 +221,13 @@ exports.update = async (req, res) => {
 // ================= DELETE PRODUCT =================
 exports.remove = async (req, res) => {
   try {
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Permission denied",
+      });
+    }
+
     const { id } = req.params;
 
     await pool.query(
@@ -221,6 +242,7 @@ exports.remove = async (req, res) => {
     });
 
   } catch (e) {
+    console.log("DELETE PRODUCT ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,
