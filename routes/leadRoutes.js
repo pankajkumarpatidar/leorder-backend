@@ -1,14 +1,47 @@
 const express = require("express");
 const router = express.Router();
 
-const controller = require("../controllers/leadController");
-const { verifyToken } = require("../middleware/authMiddleware");
+const leadController = require("../controllers/leadController");
 
-// BASE: /api/leads
+const {
+  verifyToken,
+  checkRole,
+} = require("../middleware/authMiddleware");
 
-router.post("/", verifyToken, controller.create);
-router.get("/", verifyToken, controller.list);
-router.put("/approve/:id", verifyToken, controller.approve);
-router.delete("/:id", verifyToken, controller.remove);
+
+// ================= CREATE LEAD =================
+router.post(
+  "/",
+  verifyToken,
+  checkRole("admin", "staff", "salesman"),
+  leadController.create
+);
+
+
+// ================= GET ALL LEADS =================
+router.get(
+  "/",
+  verifyToken,
+  leadController.list
+);
+
+
+// ================= APPROVE LEAD =================
+router.put(
+  "/approve/:id",
+  verifyToken,
+  checkRole("admin", "staff"),
+  leadController.approve
+);
+
+
+// ================= DELETE LEAD =================
+router.delete(
+  "/:id",
+  verifyToken,
+  checkRole("admin", "staff"),
+  leadController.remove
+);
+
 
 module.exports = router;
