@@ -1,45 +1,99 @@
+// ================= IMPORTS =================
 require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
 
+// ================= INIT =================
 const app = express();
 
-// MIDDLEWARE
-app.use(cors());
+// ================= MIDDLEWARE =================
+
+// ✅ CORS
+app.use(cors({
+  origin: "*", // production me domain lagana
+  methods: ["GET", "POST", "PUT", "DELETE"],
+}));
+
+// ✅ BODY PARSER
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// ROUTES
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/users", require("./routes/userRoutes"));
-app.use("/api/brands", require("./routes/brandRoutes"));
-app.use("/api/salesman", require("./routes/salesmanRoutes"));
-app.use("/api/leads", require("./routes/leadRoutes"));
-app.use("/api/retailers", require("./routes/retailerRoutes"));
-app.use("/api/products", require("./routes/productRoutes"));
-app.use("/api/orders", require("./routes/orderRoutes"));
-app.use("/api/worksheets", require("./routes/worksheetRoutes"));
-
-// 🔥 NEW (brand assign system)
-app.use("/api/user-brands", require("./routes/userBrandRoutes"));
-
-// ROOT
-app.get("/", (req, res) => {
-  res.send("API Running 🚀");
+// ================= LOGGER (DEBUG) =================
+app.use((req, res, next) => {
+  console.log(`🔥 ${req.method} ${req.url}`);
+  next();
 });
 
-// ERROR HANDLER
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
+// ================= HEALTH CHECK =================
+app.get("/", (req, res) => {
+  res.send("🚀 API Running Successfully");
+});
+
+// ================= ROUTES =================
+
+// 🔐 AUTH
+app.use("/api/auth", require("./routes/authRoutes"));
+
+// 👤 USERS
+app.use("/api/users", require("./routes/userRoutes"));
+
+// 🏢 BRANDS + CATEGORY
+app.use("/api/brands", require("./routes/brandRoutes"));
+
+// 👨‍💼 SALESMAN
+app.use("/api/salesman", require("./routes/salesmanRoutes"));
+
+// 🧾 LEADS
+app.use("/api/leads", require("./routes/leadRoutes"));
+
+// 🏪 RETAILERS
+app.use("/api/retailers", require("./routes/retailerRoutes"));
+
+// 📦 PRODUCTS
+app.use("/api/products", require("./routes/productRoutes"));
+
+// 🧾 ORDERS
+app.use("/api/orders", require("./routes/orderRoutes"));
+
+// 📝 WORKSHEET
+app.use("/api/worksheets", require("./routes/worksheetRoutes"));
+
+// 🔥 USER BRAND ASSIGN
+app.use("/api/user-brands", require("./routes/userBrandRoutes"));
+
+// 💰 COMMISSION
+app.use("/api/commission", require("./routes/commissionRoutes"));
+
+// 🎯 INCENTIVE
+app.use("/api/incentives", require("./routes/incentiveRoutes"));
+
+// 📊 REPORTS (OPTIONAL)
+app.use("/api/reports", require("./routes/reportRoutes"));
+
+
+// ================= 404 HANDLER =================
+app.use((req, res) => {
+  res.status(404).json({
     success: false,
-    message: "Server error",
+    message: "Route not found ❌",
+    path: req.originalUrl,
   });
 });
 
-// START SERVER
+// ================= GLOBAL ERROR HANDLER =================
+app.use((err, req, res, next) => {
+  console.error("💥 ERROR:", err);
+
+  res.status(500).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
+});
+
+// ================= SERVER START =================
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });

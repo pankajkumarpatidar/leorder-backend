@@ -1,4 +1,6 @@
 const pool = require("../config/db");
+const commissionController = require("./commissionController");
+const incentiveController = require("./incentiveController");
 
 // ================= CREATE ORDER =================
 exports.create = async (req, res) => {
@@ -12,26 +14,40 @@ exports.create = async (req, res) => {
       credit_days = 0,
     } = req.body;
 
+    if (!items?.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Items required",
+      });
+    }
+
     await client.query("BEGIN");
 
-    // 🔥 LEAD CHECK
-    if (retailer_id) {
-      const leadCheck = await client.query(
-        `SELECT id FROM leads
-         WHERE retailer_id=$1
-         AND distributor_id=$2
-         AND status='approved'
-         LIMIT 1`,
-        [retailer_id, req.user.distributor_id]
-      );
+    // 🔥 VALIDATE RETAILER
+    const rCheck = await client.query(
+      `SELECT * FROM retailers
+       WHERE id=$1 AND distributor_id=$2`,
+      [retailer_id, req.user.distributor_id]
+    );
 
-      if (!leadCheck.rows.length) {
-        await client.query("ROLLBACK");
-        return res.status(403).json({
-          success: false,
-          message: "Retailer lead not approved",
-        });
-      }
+    if (!rCheck.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        success: false,
+        message: "Retailer not found",
+      });
+    }
+
+    // 🔒 SALESMAN → own retailer only
+    if (
+      req.user.role === "salesman" &&
+      rCheck.rows[0].created_by !== req.user.id
+    ) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success: false,
+        message: "Not your retailer",
+      });
     }
 
     // 📅 DUE DATE
@@ -44,9 +60,11 @@ exports.create = async (req, res) => {
 
     // 🧾 CREATE ORDER
     const order = await client.query(
-      `INSERT INTO orders 
-       (retailer_id,total,status,distributor_id,created_by,payment_type,credit_days,due_date)
-       VALUES ($1,0,'pending',$2,$3,$4,$5,$6) RETURNING id`,
+      `INSERT INTO orders
+      (retailer_id,distributor_id,created_by,total,
+       payment_type,credit_days,due_date)
+      VALUES ($1,$2,$3,0,$4,$5,$6)
+      RETURNING id`,
       [
         retailer_id,
         req.user.distributor_id,
@@ -59,51 +77,62 @@ exports.create = async (req, res) => {
 
     let total = 0;
 
+    // ================= ITEMS =================
     for (const i of items) {
       const p = await client.query(
-        `SELECT dp_per_pcs, pcs_per_box FROM products 
+        `SELECT * FROM products
          WHERE id=$1 AND distributor_id=$2`,
         [i.product_id, req.user.distributor_id]
       );
 
-      if (!p.rows.length) continue;
-
       const product = p.rows[0];
+      if (!product) continue;
 
-      const price = Number(product.dp_per_pcs || 0);
-      const conversion = Number(product.pcs_per_box || 1);
+      // 🔒 BRAND CHECK (SALESMAN)
+      if (
+        req.user.role === "salesman" &&
+        !req.user.brand_ids.includes(product.brand_id)
+      ) {
+        continue;
+      }
 
-      const final_qty = Number(i.qty) * conversion;
+      const price = product.dp_small || 0;
 
-      // 💰 CALCULATION
+      const conversion =
+        i.unit === product.unit_big
+          ? product.conversion || 1
+          : 1;
+
+      const final_qty = i.qty * conversion;
+
       let base = final_qty * price;
 
       let afterTrade =
-        base - (base * Number(i.trade_discount || 0)) / 100;
+        base - (base * (i.trade_discount || 0)) / 100;
 
       let afterSpecial =
-        afterTrade -
-        (afterTrade * Number(i.special_discount || 0)) / 100;
+        afterTrade - (afterTrade * (i.special_discount || 0)) / 100;
 
       let afterCash =
-        afterSpecial -
-        (afterSpecial * Number(i.cash_discount || 0)) / 100;
+        afterSpecial - (afterSpecial * (i.cash_discount || 0)) / 100;
 
       const net_rate =
-        final_qty > 0 ? afterCash / final_qty : 0;
+        final_qty ? afterCash / final_qty : 0;
 
       total += afterCash;
 
       await client.query(
-        `INSERT INTO order_items 
-        (order_id,product_id,qty,unit,final_qty,price,total,
-         trade_discount,special_discount,cash_discount,net_rate,distributor_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        `INSERT INTO order_items
+        (order_id,product_id,distributor_id,
+         qty,unit,final_qty,price,total,
+         trade_discount,special_discount,cash_discount,net_rate)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           order.rows[0].id,
           i.product_id,
+          req.user.distributor_id,
           i.qty,
-          i.unit || "PCS",
+          i.unit,
           final_qty,
           price,
           afterCash,
@@ -111,30 +140,40 @@ exports.create = async (req, res) => {
           i.special_discount || 0,
           i.cash_discount || 0,
           net_rate,
-          req.user.distributor_id,
         ]
       );
     }
 
-    // 🔥 ROUND TOTAL
-    total = Math.round(total);
-
+    // 🔥 UPDATE TOTAL
     await client.query(
       `UPDATE orders SET total=$1 WHERE id=$2`,
       [total, order.rows[0].id]
+    );
+
+    // 🔥 COMMISSION + INCENTIVE
+    await commissionController.applyCommission(
+      order.rows[0].id,
+      req.user.id,
+      client
+    );
+
+    await incentiveController.updateAchievement(
+      req.user.id,
+      total,
+      client
     );
 
     await client.query("COMMIT");
 
     res.json({
       success: true,
-      total,
-      message: "Order created successfully",
+      message: "Order created",
+      total: Math.round(total),
     });
 
   } catch (e) {
     await client.query("ROLLBACK");
-    console.log("ORDER CREATE ERROR:", e);
+    console.log("CREATE ORDER ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,
@@ -145,37 +184,36 @@ exports.create = async (req, res) => {
 };
 
 
-// ================= LIST ORDERS =================
+
+// ================= LIST =================
 exports.list = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT 
-        o.*,
-        COALESCE(r.business_name, 'Walk-in') AS retailer_name
+    let query = `
+      SELECT o.*, r.business_name
       FROM orders o
-      LEFT JOIN retailers r ON r.id = o.retailer_id
-      WHERE o.distributor_id = $1
-      ORDER BY o.id DESC`,
-      [req.user.distributor_id]
-    );
+      JOIN retailers r ON r.id = o.retailer_id
+      WHERE o.distributor_id=$1
+    `;
 
-    const today = new Date();
+    const values = [req.user.distributor_id];
+    let i = 2;
 
-    const data = result.rows.map((o) => ({
-      ...o,
-      is_overdue:
-        o.payment_type === "CREDIT" &&
-        o.due_date &&
-        new Date(o.due_date) < today,
-    }));
+    if (req.user.role === "salesman") {
+      query += ` AND o.created_by=$${i++}`;
+      values.push(req.user.id);
+    }
+
+    query += ` ORDER BY o.id DESC`;
+
+    const r = await pool.query(query, values);
 
     res.json({
       success: true,
-      data,
+      data: r.rows,
     });
 
   } catch (e) {
-    console.log("ORDER LIST ERROR:", e);
+    console.log("LIST ORDER ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,
@@ -184,36 +222,61 @@ exports.list = async (req, res) => {
 };
 
 
-// ================= ORDER DETAILS =================
-exports.details = async (req, res) => {
+
+// ================= APPROVE =================
+exports.approve = async (req, res) => {
   try {
-    const orderId = req.params.id;
-
-    const order = await pool.query(
-      `SELECT 
-        o.*,
-        COALESCE(r.business_name, 'Walk-in') AS retailer_name
-       FROM orders o
-       LEFT JOIN retailers r ON r.id = o.retailer_id
-       WHERE o.id=$1 AND o.distributor_id=$2`,
-      [orderId, req.user.distributor_id]
-    );
-
-    if (!order.rows.length) {
-      return res.status(404).json({
+    if (!["admin", "staff"].includes(req.user.role)) {
+      return res.status(403).json({
         success: false,
-        message: "Order not found",
+        message: "Permission denied",
       });
     }
 
+    await pool.query(
+      `UPDATE orders SET
+        status='APPROVED',
+        approved_by=$1,
+        approved_at=NOW()
+       WHERE id=$2`,
+      [req.user.id, req.params.id]
+    );
+
+    res.json({
+      success: true,
+      message: "Approved",
+    });
+
+  } catch (e) {
+    console.log("APPROVE ERROR:", e);
+    res.status(500).json({
+      success: false,
+      message: e.message,
+    });
+  }
+};
+
+
+
+// ================= DETAILS =================
+exports.details = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await pool.query(
+      `SELECT o.*, r.business_name
+       FROM orders o
+       JOIN retailers r ON r.id=o.retailer_id
+       WHERE o.id=$1`,
+      [id]
+    );
+
     const items = await pool.query(
-      `SELECT 
-         oi.*,
-         p.name AS product_name
+      `SELECT oi.*, p.name
        FROM order_items oi
-       LEFT JOIN products p ON p.id = oi.product_id
+       JOIN products p ON p.id = oi.product_id
        WHERE oi.order_id=$1`,
-      [orderId]
+      [id]
     );
 
     res.json({
@@ -225,7 +288,7 @@ exports.details = async (req, res) => {
     });
 
   } catch (e) {
-    console.log("ORDER DETAILS ERROR:", e);
+    console.log("DETAIL ERROR:", e);
     res.status(500).json({
       success: false,
       message: e.message,

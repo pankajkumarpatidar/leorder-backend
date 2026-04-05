@@ -1,163 +1,180 @@
 const pool = require("../config/db");
 
-// ===== LIST =====
-exports.list = async (req, res) => {
-  try {
-    let result;
-
-    // 🔥 SALESMAN → only his brands
-    if (req.user.role === "salesman") {
-      result = await pool.query(
-        `SELECT * FROM leads
-         WHERE distributor_id=$1
-         AND brand_id = ANY($2)
-         ORDER BY id DESC`,
-        [req.user.distributor_id, req.user.brand_ids]
-      );
-    } else {
-      // ✅ admin / staff
-      result = await pool.query(
-        `SELECT * FROM leads
-         WHERE distributor_id=$1
-         ORDER BY id DESC`,
-        [req.user.distributor_id]
-      );
-    }
-
-    res.json({ success: true, data: result.rows });
-
-  } catch (err) {
-    console.log("LIST ERROR:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-
-// ===== CREATE =====
+// ================= CREATE LEAD =================
 exports.create = async (req, res) => {
   try {
-    const { mobile, brand_id, retailer_id } = req.body;
+    const {
+      business_name,
+      mobile,
+      email,
+      gst_status,
+      gst_no,
+      address,
+      pincode,
+    } = req.body;
 
-    if (!mobile || !brand_id) {
+    if (!business_name || !mobile) {
       return res.status(400).json({
         success: false,
-        message: "Mobile & Brand required",
+        message: "Business name & mobile required",
       });
     }
 
-    if (!/^[0-9]{10}$/.test(mobile)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid mobile",
-      });
-    }
-
-    // 🔥 SALESMAN BRAND VALIDATION
-    if (req.user.role === "salesman") {
-      if (!req.user.brand_ids.includes(Number(brand_id))) {
-        return res.status(403).json({
-          success: false,
-          message: "Not allowed for this brand",
-        });
-      }
-    }
-
-    const exists = await pool.query(
-      `SELECT id FROM leads 
-       WHERE mobile=$1 AND distributor_id=$2`,
-      [mobile, req.user.distributor_id]
-    );
-
-    if (exists.rows.length) {
-      return res.status(409).json({
-        success: false,
-        message: "Lead already exists",
-      });
-    }
-
-    const salesman_id =
-      req.user.role === "salesman" ? req.user.id : null;
-
-    await pool.query(
+    const r = await pool.query(
       `INSERT INTO leads
-      (mobile, brand_id, retailer_id, distributor_id, salesman_id, status)
-      VALUES ($1,$2,$3,$4,$5,$6)`,
+      (business_name,mobile,email,gst_status,gst_no,address,pincode,
+       distributor_id,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      RETURNING *`,
       [
+        business_name,
         mobile,
-        brand_id,
-        retailer_id || null,
+        email || null,
+        gst_status || "UNREGISTERED",
+        gst_no || null,
+        address || null,
+        pincode || null,
         req.user.distributor_id,
-        salesman_id,
-        "pending",
+        req.user.id,
       ]
     );
 
-    res.json({
-      success: true,
-      message: "Lead created",
-    });
+    res.json({ success: true, data: r.rows[0] });
 
-  } catch (err) {
-    console.log("CREATE ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+  } catch (e) {
+    console.log("CREATE LEAD ERROR:", e);
+    res.status(500).json({ success: false, message: e.message });
   }
 };
 
 
-// ===== UPDATE STATUS =====
-exports.updateStatus = async (req, res) => {
+// ================= LIST =================
+exports.list = async (req, res) => {
   try {
-    const { id, status } = req.body;
+    let query = `
+      SELECT *
+      FROM leads
+      WHERE distributor_id=$1
+    `;
 
-    if (!id || !status) {
-      return res.status(400).json({
-        success: false,
-        message: "Id & status required",
-      });
-    }
+    const values = [req.user.distributor_id];
+    let i = 2;
 
-    const allowed = ["pending", "approved", "rejected"];
-    if (!allowed.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid status",
-      });
-    }
-
+    // 🔒 SALESMAN
     if (req.user.role === "salesman") {
+      query += ` AND created_by=$${i++}`;
+      values.push(req.user.id);
+    }
+
+    query += ` ORDER BY id DESC`;
+
+    const r = await pool.query(query, values);
+
+    res.json({
+      success: true,
+      data: r.rows,
+    });
+
+  } catch (e) {
+    console.log("LIST LEAD ERROR:", e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+};
+
+
+// ================= APPROVE LEAD =================
+exports.approve = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+
+    if (!["admin", "staff"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
-        message: "Salesman cannot change status",
+        message: "Permission denied",
       });
     }
 
-    const result = await pool.query(
-      `UPDATE leads
-       SET status=$1
-       WHERE id=$2 AND distributor_id=$3`,
-      [status, id, req.user.distributor_id]
+    await client.query("BEGIN");
+
+    // 🔥 GET LEAD
+    const lead = await client.query(
+      `SELECT * FROM leads WHERE id=$1`,
+      [id]
     );
 
-    if (result.rowCount === 0) {
+    if (!lead.rows.length) {
+      await client.query("ROLLBACK");
       return res.status(404).json({
         success: false,
         message: "Lead not found",
       });
     }
 
+    const l = lead.rows[0];
+
+    // 🔥 CREATE RETAILER FROM LEAD
+    await client.query(
+      `INSERT INTO retailers
+      (business_name,email,mobile,gst_status,gst_no,address,pincode,
+       distributor_id,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        l.business_name,
+        l.email,
+        l.mobile,
+        l.gst_status,
+        l.gst_no,
+        l.address,
+        l.pincode,
+        l.distributor_id,
+        l.created_by,
+      ]
+    );
+
+    // 🔥 UPDATE LEAD
+    await client.query(
+      `UPDATE leads SET
+        status='approved',
+        approved_by=$1,
+        approved_at=NOW()
+       WHERE id=$2`,
+      [req.user.id, id]
+    );
+
+    await client.query("COMMIT");
+
     res.json({
       success: true,
-      message: "Status updated",
+      message: "Lead approved → Retailer created",
     });
 
-  } catch (err) {
-    console.log("UPDATE ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.log("APPROVE LEAD ERROR:", e);
+    res.status(500).json({ success: false, message: e.message });
+  } finally {
+    client.release();
+  }
+};
+
+
+// ================= DELETE =================
+exports.remove = async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM leads WHERE id=$1`,
+      [req.params.id]
+    );
+
+    res.json({
+      success: true,
+      message: "Deleted",
     });
+
+  } catch (e) {
+    console.log("DELETE LEAD ERROR:", e);
+    res.status(500).json({ success: false, message: e.message });
   }
 };

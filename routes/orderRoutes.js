@@ -1,18 +1,12 @@
 const express = require("express");
 const router = express.Router();
 
-const orderController = require("../controllers/orderController");
+const controller = require("../controllers/orderController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// ===== ORDER ROUTES =====
-
-// CREATE ORDER
-router.post("/orders", verifyToken, orderController.create);
-
-// LIST ORDERS (with filters support)
-router.get("/orders", verifyToken, orderController.list);
-
-// ORDER DETAILS
-router.get("/orders/:id", verifyToken, orderController.details);
+router.post("/", verifyToken, controller.create);
+router.get("/", verifyToken, controller.list);
+router.put("/approve/:id", verifyToken, controller.approve);
+router.get("/:id", verifyToken, controller.details);
 
 module.exports = router;

@@ -1,14 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const productController = require("../controllers/productController");
 
-// ✅ FIXED IMPORT
+const product = require("../controllers/productController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// ✅ ROUTES
-router.post("/products", verifyToken, productController.create);
-router.get("/products", verifyToken, productController.list);
-router.put("/products/:id", verifyToken, productController.update);
-router.delete("/products/:id", verifyToken, productController.remove);
+router.post("/", verifyToken, product.create);
+router.get("/", verifyToken, product.list);
+router.put("/:id", verifyToken, product.update);
+router.delete("/:id", verifyToken, product.remove);
 
 module.exports = router;

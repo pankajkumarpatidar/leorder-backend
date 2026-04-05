@@ -1,14 +1,14 @@
-const router = require("express").Router();
-const ctrl = require("../controllers/leadController");
+const express = require("express");
+const router = express.Router();
+
+const controller = require("../controllers/leadController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// ===== LIST ALL LEADS =====
-router.get("/", verifyToken, ctrl.list);
+// BASE: /api/leads
 
-// ===== CREATE LEAD =====
-router.post("/", verifyToken, ctrl.create);
-
-// ===== UPDATE STATUS =====
-router.put("/status", verifyToken, ctrl.updateStatus);
+router.post("/", verifyToken, controller.create);
+router.get("/", verifyToken, controller.list);
+router.put("/approve/:id", verifyToken, controller.approve);
+router.delete("/:id", verifyToken, controller.remove);
 
 module.exports = router;

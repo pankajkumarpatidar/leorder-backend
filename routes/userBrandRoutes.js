@@ -1,16 +1,14 @@
-const router = require("express").Router();
-const ctrl = require("../controllers/userBrandController");
+const express = require("express");
+const router = express.Router();
+
+const controller = require("../controllers/userBrandController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
-// ===== ASSIGN BRANDS =====
-// admin + staff
-router.post("/assign", verifyToken, ctrl.assign);
+// BASE: /api/user-brands
 
-// ===== GET USER BRANDS =====
-router.get("/:user_id", verifyToken, ctrl.getUserBrands);
-
-// ===== REMOVE SINGLE BRAND =====
-// admin + staff
-router.delete("/remove", verifyToken, ctrl.remove);
+router.post("/assign", verifyToken, controller.assign);
+router.get("/user/:user_id", verifyToken, controller.getUserBrands);
+router.delete("/:id", verifyToken, controller.remove);
+router.get("/my", verifyToken, controller.myBrands);
 
 module.exports = router;

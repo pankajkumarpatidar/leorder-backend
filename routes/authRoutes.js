@@ -1,20 +1,9 @@
-const router = require("express").Router();
-const ctrl = require("../controllers/authController");
-const { verifyToken } = require("../middleware/authMiddleware");
+const express = require("express");
+const router = express.Router();
 
-// ===== AUTH =====
+const auth = require("../controllers/authController");
 
-// REGISTER (Distributor + Admin)
-router.post("/register", ctrl.register);
-
-// LOGIN
-router.post("/login", ctrl.login);
-
-
-// ===== USER (ADMIN CONTROL) =====
-
-// CREATE USER (ONLY ADMIN)
-router.post("/create-user", verifyToken, ctrl.createUser);
-
+router.post("/register", auth.register);
+router.post("/login", auth.login);
 
 module.exports = router;

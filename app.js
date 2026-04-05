@@ -1,47 +1,99 @@
-const express = require('express');
-const cors = require('cors');
-require('dotenv').config();
+// ================= IMPORTS =================
+require("dotenv").config();
 
+const express = require("express");
+const cors = require("cors");
+
+// ================= INIT =================
 const app = express();
 
-// 🔥 MIDDLEWARES
-app.use(cors());
-app.use(express.json());
+// ================= MIDDLEWARE =================
 
-// 🔥 HEALTH CHECK
-app.get('/', (req, res) => {
-  res.send('Leorder API Running 🚀');
+// ✅ CORS
+app.use(cors({
+  origin: "*", // production me domain lagana
+  methods: ["GET", "POST", "PUT", "DELETE"],
+}));
+
+// ✅ BODY PARSER
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ================= LOGGER (DEBUG) =================
+app.use((req, res, next) => {
+  console.log(`🔥 ${req.method} ${req.url}`);
+  next();
 });
 
-// 🔥 ROUTES
-app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/worksheet', require('./routes/worksheetRoutes'));
-app.use('/api/lead', require('./routes/leadRoutes'));
-app.use('/api/retailer', require('./routes/retailerRoutes'));
-app.use('/api/brand', require('./routes/brandRoutes'));
-app.use('/api/salesman', require('./routes/salesmanRoutes'));
-app.use('/api/order', require('./routes/orderRoutes'));
-app.use('/api/product', require('./routes/productRoutes'));
+// ================= HEALTH CHECK =================
+app.get("/", (req, res) => {
+  res.send("🚀 API Running Successfully");
+});
 
-// 🔥 NEW (brand assign system)
-app.use('/api/user-brands', require('./routes/userBrandRoutes'));
+// ================= ROUTES =================
 
-// 🔥 404 HANDLER
+// 🔐 AUTH
+app.use("/api/auth", require("./routes/authRoutes"));
+
+// 👤 USERS
+app.use("/api/users", require("./routes/userRoutes"));
+
+// 🏢 BRANDS + CATEGORY
+app.use("/api/brands", require("./routes/brandRoutes"));
+
+// 👨‍💼 SALESMAN
+app.use("/api/salesman", require("./routes/salesmanRoutes"));
+
+// 🧾 LEADS
+app.use("/api/leads", require("./routes/leadRoutes"));
+
+// 🏪 RETAILERS
+app.use("/api/retailers", require("./routes/retailerRoutes"));
+
+// 📦 PRODUCTS
+app.use("/api/products", require("./routes/productRoutes"));
+
+// 🧾 ORDERS
+app.use("/api/orders", require("./routes/orderRoutes"));
+
+// 📝 WORKSHEET
+app.use("/api/worksheets", require("./routes/worksheetRoutes"));
+
+// 🔥 USER BRAND ASSIGN
+app.use("/api/user-brands", require("./routes/userBrandRoutes"));
+
+// 💰 COMMISSION
+app.use("/api/commission", require("./routes/commissionRoutes"));
+
+// 🎯 INCENTIVE
+app.use("/api/incentives", require("./routes/incentiveRoutes"));
+
+// 📊 REPORTS (OPTIONAL)
+app.use("/api/reports", require("./routes/reportRoutes"));
+
+
+// ================= 404 HANDLER =================
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: "Route not found"
+    message: "Route not found ❌",
+    path: req.originalUrl,
   });
 });
 
-// 🔥 GLOBAL ERROR HANDLER
+// ================= GLOBAL ERROR HANDLER =================
 app.use((err, req, res, next) => {
-  console.error("GLOBAL ERROR:", err);
+  console.error("💥 ERROR:", err);
 
-  res.status(err.status || 500).json({
+  res.status(500).json({
     success: false,
-    message: err.message || "Internal server error"
+    message: err.message || "Internal Server Error",
   });
 });
 
-module.exports = app;
+// ================= SERVER START =================
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
